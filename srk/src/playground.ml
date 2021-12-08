@@ -43,8 +43,13 @@ let () =
                           ~doc:"smtlib2 file containing quantified formula"
      and elim_sort = flag "elim" (optional string)
                        ~doc:"eliminate all variables as if they are [int | frac | std]"
+     and debug = flag "debug" (optional string)
+                   ~doc:"debug at level [trace | debug | none]"
          in
          fun () ->
+         Log.my_verbosity_level := (match debug with
+                                    | None -> `info
+                                    | Some s -> Log.level_of_string s);
          do_qe (match elim_sort with | None -> `Std | Some s -> sort_of_string s)
            formula_file
     ]
