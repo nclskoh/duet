@@ -344,7 +344,15 @@ end = struct
     Log.logf ~level:`trace "@[LinearTerm: adding %a and %a gives %a@]@;" pp t1 pp t2 pp t;
     t
 
-  let mul_rational r = H.map (fun _ coeff -> QQ.mul coeff r)
+  let mul_rational r t =
+    H.fold (fun term coeff curr ->
+        let c = QQ.mul r coeff in
+        if QQ.equal c QQ.zero then curr
+        else
+          (insert curr term c; curr)
+      )
+      t
+      (table ())
 
   let mul t1 t2 =
     match numeral_of t1, numeral_of t2 with
@@ -939,12 +947,13 @@ end
 
 module Eliminate : sig
 
-  val reduce : [`TyIntQe | `TyFracQe] -> Syntax.symbol
+  val reduce : ?simplify:[`Simplify | `KeepOriginal]
+               -> [`TyIntQe | `TyFracQe] -> Syntax.symbol
                -> Ctx.t Syntax.formula -> Ctx.t Syntax.formula
 
 end = struct
 
-  let reduce sort x phi =
+  let simplify_formula phi =
     let go phi =
       match phi with
       | `Tru -> Ctx.mk_true
@@ -952,25 +961,61 @@ end = struct
       | `And phis -> Ctx.mk_and phis
       | `Or phis -> Ctx.mk_or phis
       | `Not phi -> Ctx.mk_not phi
-      | `Quantify _ -> invalid_arg "eliminate: expecting QF formula"
+      | `Quantify _ -> invalid_arg "Eliminate: expecting QF formula"
       | `Atom (`Arith (`Eq, t1, t2)) ->
-      (* AtomicRewriter.simplify_atomic `Eq t1 t2 *)
-         AtomicRewriter.rewrite_eq sort x t1 t2
+         Ctx.mk_eq (LinearTerm.simplify t1) (LinearTerm.simplify t2)
+      | `Atom (`Arith (`Leq, t1, t2)) ->
+         Ctx.mk_leq (LinearTerm.simplify t1) (LinearTerm.simplify t2)
+      | `Atom (`Arith (`Lt, t1, t2)) ->
+         Ctx.mk_lt (LinearTerm.simplify t1) (LinearTerm.simplify t2)
+      | `Atom (`ArrEq _) -> invalid_arg "Eliminate: array theory not supported"
+      | `Proposition (`Var _) ->
+         invalid_arg "Eliminate: not expecting a propositional variable"
+      | `Proposition (`App (sym, args)) ->
+         Ctx.mk_app sym args
+      | `Ite _ -> invalid_arg "Eliminate: ITE should have been removed"
+    in
+    Syntax.Formula.eval lira_ctx go phi
+
+  let reduce ?simplify:(simplify = `Simplify) sort x phi =
+    let clean psi = match simplify with
+      | `Simplify -> simplify_formula psi
+      | `KeepOriginal -> psi
+    in
+    let go phi =
+      match phi with
+      | `Tru -> Ctx.mk_true
+      | `Fls -> Ctx.mk_false
+      | `And phis -> Ctx.mk_and phis
+      | `Or phis -> Ctx.mk_or phis
+      | `Not phi -> Ctx.mk_not phi
+      | `Quantify _ -> invalid_arg "Eliminate: expecting QF formula"
+      | `Atom (`Arith (`Eq, t1, t2)) ->
+         (* AtomicRewriter.simplify_atomic `Eq t1 t2 *)
+         clean (AtomicRewriter.rewrite_eq sort x t1 t2)
       | `Atom (`Arith (`Leq, t1, t2)) ->
       (* AtomicRewriter.simplify_atomic `Leq t1 t2 *)
-         AtomicRewriter.rewrite_leq sort x t1 t2
+         clean (AtomicRewriter.rewrite_leq sort x t1 t2)
       | `Atom (`Arith (`Lt, t1, t2)) ->
-         AtomicRewriter.rewrite_lt sort x t1 t2
-      | `Atom (`ArrEq _) -> invalid_arg "eliminate: array theory not supported"
+         clean (AtomicRewriter.rewrite_lt sort x t1 t2)
+      | `Atom (`ArrEq _) -> invalid_arg "Eliminate: array theory not supported"
       | `Proposition (`Var _) ->
-         invalid_arg "eliminate: not expecting a propositional variable"
+         invalid_arg "Eliminate: not expecting a propositional variable"
       | `Proposition (`App (sym, [t1; t2; t3]))
            when String.equal (Syntax.show_symbol lira_ctx sym) "mod" ->
          let f = Syntax.Expr.arith_term_of lira_ctx in
          AtomicRewriter.rewrite_modulo sort x (f t1) (f t2) sym (f t3)
-      | `Proposition (`App (sym, _)) ->
-         invalid_arg (Format.sprintf "eliminate: unhandled predicate %s" (Syntax.show_symbol lira_ctx sym))
-      | `Ite _ -> invalid_arg "eliminate: ITE should have been removed"
+      | `Proposition (`App (sym, args)) ->
+         (* NK: This typechecks because we can arbitrarily instantiate
+            the target ['typ] in [expr].
+            The implementation can satisfy such a type because the type parameter
+            is phantom and terms in the type appear in all instances of the type.
+            (The "same" term in different type instances may technically be different terms,
+            but in any context relating the two, it must be typed consistently at
+            one type, so this difference is never observed.)
+          *)
+         Ctx.mk_app sym args
+      | `Ite _ -> invalid_arg "Eliminate: ITE should have been removed"
     in
     let res = Syntax.Formula.eval lira_ctx go phi in
     Log.logf ~level:`debug
