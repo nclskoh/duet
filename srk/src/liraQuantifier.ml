@@ -273,10 +273,12 @@ end = struct
           else
             match Syntax.ArithTerm.destruct lira_ctx term with
             | `Real r when QQ.equal r QQ.one ->
-               if QQ.equal coeff QQ.one then Some term
-               else if QQ.equal coeff (QQ.negate QQ.one) then Some (Ctx.mk_neg term)
-               else Some (Ctx.mk_mul [Ctx.mk_real coeff ; term])
-            | _ -> None
+               Some (Ctx.mk_real coeff)
+            | _ when QQ.equal coeff QQ.one ->
+               Some term
+            | _ when QQ.equal coeff (QQ.negate QQ.one) ->
+               Some (Ctx.mk_neg term)
+            | _ -> Some (Ctx.mk_mul [Ctx.mk_real coeff ; term])
         in
         match this_term with
         | None -> curr
