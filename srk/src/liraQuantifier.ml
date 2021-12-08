@@ -618,7 +618,7 @@ end = struct
              | Some term -> Some (Ctx.mk_add [Ctx.mk_real n; term]) }
        in
        begin
-         Log.logf ~level:`trace "@[NormalTerm.floor: possibilities are: %a@]@;"
+         Log.logf ~level:`trace "@[NormalTerm: floor: possibilities are: %a@]@;"
            (Format.pp_print_list ~pp_sep:Format.pp_print_space QQ.pp)
            possibilities;
          let result =
@@ -626,9 +626,11 @@ end = struct
            | None ->
               List.map (sum None) possibilities
            | Some rest ->
-              List.map (sum (Some rest)) possibilities
+              List.map (sum (Some (Ctx.mk_floor rest))) possibilities
          in
-         Log.logf ~level:`trace "@[NormalTerm.floor: terms are: %a@]@;"
+         Log.logf ~level:`debug "@[NormalTerm for %a: fractional floor(%a) = %a@]@;"
+           (Syntax.pp_symbol lira_ctx) t.sym
+           pp t
            (Format.pp_print_list ~pp_sep:Format.pp_print_space pp)
            result;
          result
@@ -727,7 +729,7 @@ end = struct
       | `Ite _
         | `Select _ -> invalid_arg "NormalizeTerm: unsupported" in
     let res = Syntax.ArithTerm.eval lira_ctx go term in
-    Log.logf ~level:`trace "@[NormalizeTerm: normalizing %a gives %a@]@;"
+    Log.logf ~level:`debug "@[NormalizeTerm: normalizing %a gives %a@]@;"
       (Syntax.ArithTerm.pp lira_ctx) term pp res;
     res
 
@@ -831,7 +833,7 @@ end = struct
       | `Leq -> "<="
       | `Lt -> "<"
     in
-    Log.logf ~level:`trace "@[AtomicRewriter: rewritten (%a %s %a) into %a@]@;"
+    Log.logf ~level:`debug "@[AtomicRewriter: rewritten (%a %s %a) into %a@]@;"
       (Syntax.ArithTerm.pp lira_ctx) lhs
       rel_symbol
       (Syntax.ArithTerm.pp lira_ctx) rhs
