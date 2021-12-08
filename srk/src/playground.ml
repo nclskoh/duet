@@ -3,7 +3,7 @@ open Srk
 
 (** Preamble stolen from bigtop.ml *)
 
-module Ctx = SrkAst.Ctx
+module Ctx = LiraQuantifier.Ctx
 let srk = Ctx.context
 
 (* From bigtop.ml *)
@@ -29,13 +29,7 @@ let () =
          fun () ->
          (* TODO: Figure out how to write your own parser... *)
          let formula = load_smtlib2 formula_file in
-         (* Normalization turns all negated formulas into positive formulas by using < and <= *)
-         let (prefix, qf) = Quantifier.normalize srk formula in
-         let qf_cleaned = Syntax.eliminate_ite srk qf in
-         Format.printf "@[Input formula is: %a@]@;" (Syntax.Expr.pp srk) formula;
-         Format.printf "@[Quantifier-free part before ITE elim is: %a@]@;" (Syntax.Expr.pp srk) qf;
-         Format.printf "@[Quantifier-free part after ITE elim is: %a@]@;" (Syntax.Expr.pp srk) qf_cleaned;
-         let answer = LiraQuantifier.quantifier_elimination ~how:`Substitution prefix qf in
+         let answer = LiraQuantifier.quantifier_elimination ~how:`Substitution formula in
          Format.printf "@[Result of QE: %a@]@;" (Syntax.Expr.pp srk) answer;
          ()
     ]

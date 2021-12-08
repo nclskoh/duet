@@ -1,9 +1,8 @@
 
+module Ctx : Syntax.Context
+
 val quantifier_elimination:
-  how:[`Substitution | `Mbp]
-    -> Quantifier.quantifier_prefix
-    -> SrkAst.formula
-    -> SrkAst.formula
+  how:[`Substitution | `Mbp] -> Ctx.formula -> Ctx.formula
 
 module IntegerFrac : sig
 
@@ -23,14 +22,16 @@ module SplitVariables : sig
 
   (** phi ---> phi[x |-> x_int + x_frac] *)
 
-  val transform : Syntax.symbol -> SrkAst.Ctx.formula
-                  -> Syntax.symbol * Syntax.symbol * SrkAst.Ctx.formula
+  val transform : Syntax.symbol -> Ctx.formula
+                  -> Syntax.symbol * Syntax.symbol * Ctx.formula
 
 end
 
 module LinearTerm : sig
 
   type t
+
+  val pp : Format.formatter -> t -> unit
 
   val real : QQ.t -> t
 
@@ -50,11 +51,11 @@ module LinearTerm : sig
 
   val negate : t -> t
 
-  val of_term: SrkAst.Ctx.arith_term -> t
+  val of_term: Ctx.arith_term -> t
 
-  val to_term : t -> SrkAst.Ctx.arith_term
+  val to_term : t -> Ctx.arith_term
 
-  val simplify: SrkAst.Ctx.arith_term -> SrkAst.Ctx.arith_term
+  val simplify: Ctx.arith_term -> Ctx.arith_term
 
 end
 
@@ -66,19 +67,21 @@ module NormalTerm : sig
 
   type t
 
+  val pp : Format.formatter -> t -> unit
+
   val zero : Syntax.symbol -> t (* 0 x + 0 *)
 
   val coeff : t -> QQ.t (* coefficient of x *)
 
   val symbol : t -> Syntax.symbol
 
-  val rest_of : t -> SrkAst.Ctx.arith_term
+  val rest_of : t -> Ctx.arith_term
 
-  val term_of : t -> SrkAst.Ctx.arith_term
+  val term_of : t -> Ctx.arith_term
 
   val add_sym : QQ.t -> t -> t
 
-  val add_rest : SrkAst.Ctx.arith_term -> t -> t
+  val add_rest : Ctx.arith_term -> t -> t
   (* unchecked, make sure it doesn't include the symbol itself *)
 
   val add : t -> t -> t
@@ -102,7 +105,7 @@ end
 module NormalizeTerm : sig
 
   val normalize_term : [`TyIntQe | `TyFracQe] -> Syntax.symbol
-                       -> SrkAst.Ctx.arith_term -> NormalTerm.t list
+                       -> Ctx.arith_term -> NormalTerm.t list
 
   (* Lift binary operation on normal terms to binary operation on sets
      of normal terms; (A, B) |-> { a op b : a in A, b in B }.
@@ -111,4 +114,29 @@ module NormalizeTerm : sig
                   -> NormalTerm.t list -> NormalTerm.t list
                   -> NormalTerm.t list
 
+end
+
+module AtomicRewriter : sig
+
+  val simplify_atomic : [`Eq | `Leq | `Lt]
+                        -> Ctx.arith_term -> Ctx.arith_term -> Ctx.formula
+
+  val rewrite_eq : [`TyIntQe | `TyFracQe]
+                   -> Syntax.symbol
+                   -> Ctx.arith_term -> Ctx.arith_term -> Ctx.formula
+
+  val rewrite_leq : [`TyIntQe | `TyFracQe]
+                   -> Syntax.symbol
+                   -> Ctx.arith_term -> Ctx.arith_term -> Ctx.formula
+
+  val rewrite_lt : [`TyIntQe | `TyFracQe]
+                   -> Syntax.symbol
+                   -> Ctx.arith_term -> Ctx.arith_term -> Ctx.formula
+
+  val rewrite_modulo : [`TyIntQe | `TyFracQe]
+                       -> Syntax.symbol
+                       -> Ctx.arith_term -> Ctx.arith_term
+                       -> Syntax.symbol (* TODO: remove the need for this modulo symbol *)
+                       -> Ctx.arith_term
+                       -> Ctx.formula
 end
