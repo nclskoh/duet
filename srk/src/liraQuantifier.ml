@@ -742,7 +742,7 @@ end = struct
       | `Ite _
         | `Select _ -> invalid_arg "NormalizeTerm: unsupported" in
     let res = Syntax.ArithTerm.eval lira_ctx go term in
-    Log.logf ~level:`debug "@[NormalizeTerm: normalizing %a gives %a@]@;"
+    Log.logf ~level:`debug "@[@[NormalizeTerm: normalizing @[%a@] gives@]@; @[%a@]@]@;"
       (Syntax.ArithTerm.pp lira_ctx) term pp res;
     res
 
@@ -846,7 +846,7 @@ end = struct
       | `Leq -> "<="
       | `Lt -> "<"
     in
-    Log.logf ~level:`debug "@[AtomicRewriter: rewritten (%a %s %a) into %a@]@;"
+    Log.logf ~level:`debug "@[@[AtomicRewriter: rewritten @[(%a %s %a)@] into@]@; %a@]@;"
       (Syntax.ArithTerm.pp lira_ctx) lhs
       rel_symbol
       (Syntax.ArithTerm.pp lira_ctx) rhs
@@ -1041,7 +1041,7 @@ module Test = struct
     let qf_cleaned = Syntax.eliminate_ite lira_ctx qf in
     Log.logf ~level:`always "@[Input formula is: %a@]@;" (Syntax.Expr.pp lira_ctx) phi;
     Log.logf ~level:`always
-      "@[Quantifier-free part after normalization is: %a@]@;" (Syntax.Expr.pp lira_ctx)
+      "@[@[Quantifier-free part after normalization is:@]@; @[%a@]@]@;" (Syntax.Expr.pp lira_ctx)
       qf_cleaned;
     let exists x phi =
       Eliminate.reduce sort x phi
