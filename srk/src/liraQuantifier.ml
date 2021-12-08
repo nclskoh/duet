@@ -371,9 +371,14 @@ end = struct
          mul_rational (QQ.inverse r) t1
 
   let floor t =
-    let t' = table () in
-    insert t' (Ctx.mk_floor (to_term t)) QQ.one;
-    t'
+    (* TODO: This is quite inefficient *)
+    match numeral_of t with
+    | None ->
+       let t' = table () in
+       insert t' (Ctx.mk_floor (to_term t)) QQ.one;
+       t'
+    | Some r ->
+       real (QQ.of_zz (QQ.floor r))
 
   let negate t =
     H.map (fun _term coeff -> QQ.negate coeff) t
@@ -947,7 +952,7 @@ end
 
 module Eliminate : sig
 
-  val reduce : ?simplify:[`Simplify | `KeepOriginal]
+  val reduce : ?simplify:[`Normalize | `Simplify | `KeepOriginal]
                -> [`TyIntQe | `TyFracQe] -> Syntax.symbol
                -> Ctx.t Syntax.formula -> Ctx.t Syntax.formula
 
@@ -977,8 +982,10 @@ end = struct
     in
     Syntax.Formula.eval lira_ctx go phi
 
-  let reduce ?simplify:(simplify = `Simplify) sort x phi =
+  let reduce ?simplify:(simplify = `Normalize) sort x phi =
     let clean psi = match simplify with
+      | `Normalize -> simplify_formula psi
+                      |> Quantifier.normalize lira_ctx |> snd
       | `Simplify -> simplify_formula psi
       | `KeepOriginal -> psi
     in
