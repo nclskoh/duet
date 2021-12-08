@@ -932,179 +932,6 @@ module Eliminate : sig
 
 end = struct
 
-  (*
-  type coeff_var = QQ.t * [`None | `Rational | `Var of int * Syntax.typ_arith]
-
-  let multiply_coeff_var (coeff1, tag1) (coeff2, tag2) : coeff_var =
-    let f = QQ.mul in
-    match tag1, tag2 with
-    | `None, _ -> (coeff2, tag2)
-    | _, `None -> (coeff1, tag1)
-    | `Rational, `Rational ->
-       (f coeff1 coeff2, `Rational)
-    | `Rational, `Var (i, typ)
-    | `Var (i, typ), `Rational ->
-       (f coeff1 coeff2, `Var (i, typ))
-    | `Var (i, typi), `Var (j, typj) when i = j && typi = typj ->
-       (f coeff1 coeff2, `Var (i, typi))
-    | `Var (_i, _typi), `Var (_j, _typj) ->
-       invalid_arg "op_coeff_var: cannot multiply, non-linear or wrong types"
-
-  (** Given a monomial in one variable, compute its coefficient and variable *)
-  let coeff_var_of_product term =
-    let destruct = Syntax.ArithTerm.destruct srk in
-    let go t =
-      match destruct t with
-      | `Real k -> (k, `Rational)
-      | `Var (i, typ) ->
-         (QQ.one, `Var (i, typ))
-      | `Mul l ->
-         List.map go l
-         |> List.fold_left multiply_coeff_var (QQ.one, `None)
-      | `Unop (`Neg, t) ->
-         let (k, tag) = go t in
-         (QQ.negate k, tag)
-      | _ -> invalid_arg "coeff_var_of_product: unexpected term"
-    in
-    go term
-
-  (** Given a list of linear terms of the form a_i x_i, compute the sum as a vector *)
-  let linear_sum_to_vector terms =
-    List.fold_left
-      (fun vec t ->
-        let (k, tag) = coeff_var_of_product t in
-        match tag with
-        | `Rational -> Linear.QQVector.add_term k 0 vec
-        | `Var (_, typ) when typ = `TyInt ->
-           invalid_arg "linear_sum_to_vector: variable should be real/rational"
-        | `Var (i, typ) when typ = `TyReal ->
-           if i <= 0 then
-             invalid_arg "linear_sum_to_vector: de Bruijn index <= 0!"
-           else Linear.QQVector.add_term k i vec
-        | `Var _ -> invalid_arg "linear_sum_to_vector: shouldn't happen"
-        | `None -> invalid_arg "linear_sum_to_vector: coefficient should exist"
-      )
-      Linear.QQVector.zero terms
-
-  let vector_entry_to_term scalar dim =
-    if dim > 0 then
-      Ctx.mk_mul [Ctx.mk_real scalar; Ctx.mk_var dim `TyReal]
-    else if dim = 0 then
-      Ctx.mk_real scalar
-    else
-      invalid_arg "vector_to_terms: dimension unexpected"
-
-  let vector_to_terms v =
-    Linear.QQVector.enum v
-    |> BatEnum.fold
-         (fun l (scalar, dim) -> vector_entry_to_term scalar dim :: l) []
-    |> List.rev
-   *)
-
-  (*
-  let construct_normal_terms _env _x t =
-    let open Syntax in
-    let go (t : ('b, 'a) open_arith_term) =
-      match t with
-      | `Real c -> [Ctx.mk_real c]
-      | `App (f, args) -> [Ctx.mk_app f args] (* TODO? *)
-      | `Var (i, typ) ->
-         (*
-         if Symbol.compare x (Env.find env i) = 0
-         (* Turn de Bruijn variable into constant symbol since we are
-            eliminating quantifier for x anyway *)
-         then [Ctx.mk_const x]
-         else [Ctx.mk_var i typ]
-          *)
-         [Ctx.mk_var i (typ : typ_arith :> typ_fo)]
-      | `Add ts ->
-         List.map go ts |> cartesian_product
-         |> List.map (fun l -> l |> linear_sum_to_vector |> vector_to_terms |> Ctx.mk_add)
-      | `Mul ts ->
-         List.map go ts |> cartesian_product
-         |> List.map (fun l ->
-                l
-                |> List.fold_left (* Muitiply monomials together provided the result is linear *)
-                     (fun coeff_var t ->
-                       coeff_var_of_product t |> multiply_coeff_var coeff_var)
-                     (QQ.one, `None)
-                |> fun (coeff, tag) ->
-                   match tag with
-                   | `None -> invalid_arg "construct_normal_terms: shouldn't happen"
-                   | `Rational ->
-                      Ctx.mk_real coeff
-                   | `Var (i, typ) ->
-                      Ctx.mk_mul [Ctx.mk_real coeff; Ctx.mk_var i (typ : typ_arith :> typ_fo)])
-      | `Binop (`Div, `Real k1, `Real k2) when not (QQ.equal k2 QQ.zero) ->
-         [Ctx.mk_real (QQ.div k1 k2)]
-      | `Unop (`Floor, _t) ->
-         (*
-         go t
-         |> List.map
-              (fun term ->
-                term
-                |> linear_sum_to_vector
-                |> Linear.QQVector.enum
-                |> BatEnum.fold (fun (curr_x, rest) (scalar, dim) ->
-                       if Symbol.compare x (Env.find env i) = 0 then
-                         (QQ.add curr_x scalar, rest)
-                       else
-                         (, vector_entry_to_term scalar dim)
-                     )
-                     (QQ.zero, vector_entry_to_term scalar dim)
-              )
-          *)
-         invalid_arg "construct_normal_terms: not handled yet"
-      | `Unop (`Neg, t) ->
-
-      | `Binop _
-      | `Ite _
-      | `Select _ -> invalid_arg "construct_normal_terms: unsupported"
-    in
-    ArithTerm.eval srk go t
-   *)
-
-  (*
-  let rec linearizer x phi =
-    Syntax.Formula.eval srk
-      (function
-       | `Tru -> Syntax.mk_true
-       | `Fls -> Syntax.mk_false
-       | `And phis -> Syntax.mk_and srk (linearizer x phis)
-       | `Or phis -> Syntax.mk_or srk (linearizer x phis)
-       | `Not phi' -> Syntax.mk_not srk (linearizer x phi')
-       | `Quantify (quantifier, y, typ, phi') ->
-          (match quantifier with
-           | `Exists ->
-              Syntax.mk_exists srk ~name:y typ (linearizer x phi')
-           | `Forall ->
-              Syntax.mk_forall srk ~name:y typ (linearizer x phi')
-          )
-       | `Atom atom ->
-          linearize_atom atom
-       | `Proposition (`Var i) ->
-       | `Proposition (`App (f, args)) ->
-       | `Ite (cond, ifbody, elsebody) ->
-          Syntax.mk_ite srk (linearizer x  ? ?
-       | Node (Eq, _, _) ->
-       | Node (Leq, _, _) ->
-       | Node (Lt, _, _) ->
-       | Node (App, _, _) ->
-       | Node (Var (i, typ), _, _) ->
-       | Node (Add, _, _) ->
-       | Node (Mul, _, _) ->
-       | Node (Neg, _, _) ->
-       | Node (Floor, _, _) ->
-       | Node (Real, _, _) ->
-       | Node (Mod, _, _) ->
-       | Node (Div _, _) ->
-       | Node (ArrEq, _, _) ->
-       | Node (Ite, _, _) ->
-       | Node (Store, _, _) ->
-       | Node (Select, _, _) ->
-      ) phi
-   *)
-
   let reduce sort x =
     (* [Formula.eval], [Formula.destruct], [Syntax.rewrite] *)
     (* Syntax.rewrite srk phi *)
@@ -1139,67 +966,44 @@ end = struct
 
 end
 
-(*
-let annotate (typ : Syntax.typ) (x : Syntax.symbol) =
-  let name = Option.get (Syntax.symbol_name srk x) in
-  let make_name s suffix =
-    let s' = String.concat "_" [s; suffix] in
-    if Syntax.is_registered_name srk s' then
-      invalid_arg (Format.sprintf "annotate: %s already exists" s)
-    else
-      s'
-  in
-  match typ with
-  | `TyInt ->
-     make_name name "int"
-  | `TyReal ->
-     make_name name "frac"
-  | _ ->
-     invalid_arg "annotate: can only introduce int or real names"
+module Test = struct
 
- *)
+  let qe_as (sort: [`TyIntQe | `TyFracQe]) (phi: Ctx.t Syntax.formula) =
+    let (prefix, qf) = Quantifier.normalize srk phi in
+    let qf_cleaned = Syntax.eliminate_ite srk qf in
+    Log.logf ~level:`always "@[Input formula is: %a@]@;" (Syntax.Expr.pp srk) phi;
+    Log.logf ~level:`always
+      "@[Quantifier-free part after normalization is: %a@]@;" (Syntax.Expr.pp srk)
+      qf_cleaned;
 
-(*
-let rec weipsfenning_transform
-          (phi : (SrkAst.formula, 'a) Syntax.open_formula)
-        : SrkAst.formula =
-  let open Syntax in
-  match phi with
-  | `Tru -> Ctx.mk_true
-  | `Fls -> Ctx.mk_false
-  | `And l -> Ctx.mk_and (List.map (Formula.eval srk weipsfenning_transform) l)
-  | `Or l -> Ctx.mk_or (List.map (Formula.eval srk weipsfenning_transform) l)
-  | `Not phi -> Ctx.mk_not (Formula.eval srk weipsfenning_transform phi)
-  | `Quantify _ ->
-     invalid_arg "weipsfenning_transform: formula should be quantifier-free"
-  | `Atom atom ->
-     (match atom with
-      | `Arith (`Eq, lhs, rhs) ->
-         Ctx.mk_eq lhs rhs
-      | `Arith (`Leq, lhs, rhs) ->
-         Ctx.mk_leq lhs rhs
-      | `Arith (`Lt, lhs, rhs) ->
-         Ctx.mk_lt lhs rhs
-      | `ArrEq (_, _) ->
-         invalid_arg "weipsfenning_transform: array theory not supported yet")
-  | `Proposition _ ->
-     invalid_arg "weipsfenning_transform: proposition not supported"
-  | `Ite _ ->
-     invalid_arg "weipsfenning_transform: ITE should have been removed"
- *)
+    Log.my_verbosity_level := `debug;
+
+    let exists x phi =
+      Eliminate.reduce sort x phi
+    in
+    List.fold_right
+      (fun (qt, x) qf ->
+        match qt with
+        | `Exists ->
+           exists x (snd (Quantifier.normalize srk qf))
+        | `Forall ->
+           Ctx.mk_not (exists x (snd (Quantifier.normalize srk
+                                        (Ctx.mk_not qf)))))
+      prefix (* fold over quantifiers *)
+      qf_cleaned
+
+end
 
 let weispfenning_qe
       (x : Syntax.symbol)
       (qf_formula : Ctx.t Syntax.formula) : Ctx.t Syntax.formula =
   (* Syntax.Formula.eval srk weipsfenning_transform qf_formula *)
-  (* SplitVariables.transform x qf_formula *)
-  (x, x, qf_formula)
-  |> (fun (_xi, u, phi) ->
-    (* Eliminate.reduce `TyIntQe xi phi *)
-    Eliminate.reduce `TyFracQe u phi)
+  SplitVariables.transform x qf_formula
+  |> (fun (xi, u, phi) ->
+    Eliminate.reduce `TyIntQe xi phi
+    |> Eliminate.reduce `TyFracQe u)
 
-let quantifier_elimination ~how:(how : [`Substitution | `Mbp])
-      phi =
+let qe phi =
   (* essentially stolen from Quantifier.ml *)
   (* Normalization turns all negated formulas into positive formulas by using < and <=,
      turns all de Bruijn indices into constant symbols, etc.
@@ -1213,10 +1017,7 @@ let quantifier_elimination ~how:(how : [`Substitution | `Mbp])
 
   Log.my_verbosity_level := `debug;
 
-  let exists x phi =
-    match how with
-    | `Substitution -> weispfenning_qe x phi
-    | `Mbp -> invalid_arg "MBP QE Not implemented yet"
+  let exists x phi = weispfenning_qe x phi
   in
   List.fold_right
     (fun (qt, x) qf ->

@@ -18,19 +18,34 @@ let file_contents filename =
 let load_smtlib2 filename =
   SrkZ3.load_smtlib2 srk (Bytes.to_string (file_contents filename))
 
+let do_qe sort file =
+  load_smtlib2 file
+  |> (fun phi -> match sort with
+                 | `Std -> LiraQuantifier.qe phi
+                 | `TyIntQe -> LiraQuantifier.Test.qe_as `TyIntQe phi
+                 | `TyFracQe -> LiraQuantifier.Test.qe_as `TyFracQe phi
+     )
+  |> Format.printf "@[Result of QE: %a@]@;" (Syntax.Expr.pp srk)
+
+let sort_of_string s =
+  if String.equal s "std" then `Std
+  else if String.equal s "int" then `TyIntQe
+  else if String.equal s "frac" then `TyFracQe
+  else invalid_arg "Invalid elimination type"
+
+(* [lib/core_kernel/command_intf.ml] *)
 let () =
   let open Command.Let_syntax in
   Command.basic
     ~summary:"Weipsfenning's quantifier elimination"
     [%map_open
-     let formula_file =
-       flag "qe" (required string) ~doc:"smtlib2 file containing quantified formula"
+     let formula_file = flag "qe" (required string)
+                          ~doc:"smtlib2 file containing quantified formula"
+     and elim_sort = flag "elim" (optional string)
+                       ~doc:"eliminate all variables as if they are [int | frac | std]"
          in
          fun () ->
-         (* TODO: Figure out how to write your own parser... *)
-         let formula = load_smtlib2 formula_file in
-         let answer = LiraQuantifier.quantifier_elimination ~how:`Substitution formula in
-         Format.printf "@[Result of QE: %a@]@;" (Syntax.Expr.pp srk) answer;
-         ()
+         do_qe (match elim_sort with | None -> `Std | Some s -> sort_of_string s)
+           formula_file
     ]
   |> Command.run
