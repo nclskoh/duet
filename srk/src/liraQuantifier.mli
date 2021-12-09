@@ -13,6 +13,14 @@ module Test : sig
 
 end
 
+module Eliminate : sig
+
+  val reduce : ?simplify:[`Normalize | `Simplify | `KeepOriginal]
+               -> [`TyIntQe | `TyFracQe] -> Syntax.symbol
+               -> Ctx.t Syntax.formula -> Ctx.t Syntax.formula
+
+end
+
 module LinearTerm : sig
 
   (** A simplified term (linear term) is of the form:
