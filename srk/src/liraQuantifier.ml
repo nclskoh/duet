@@ -87,6 +87,24 @@
 module Ctx = Syntax.MakeContext ()
 let lira_ctx = Ctx.context
 
+let rec range_towards_zero n =
+  if n = 0 then [0]
+  else if n > 0 then n :: range_towards_zero (n - 1)
+  else n :: range_towards_zero (n + 1)
+
+let rational_of t =
+  let go t =
+    match t with
+    | `Real r -> r
+    | `Add rationals -> List.fold_left QQ.add QQ.zero rationals
+    | `Mul rationals -> List.fold_left QQ.mul QQ.one rationals
+    | `Binop (`Div, num, denom) -> QQ.div num denom
+    | `Binop (`Mod, dividend, divisor) -> QQ.modulo dividend divisor
+    | `Unop (`Floor, r) -> QQ.of_zz (QQ.floor r)
+    | `Unop (`Neg, r) -> QQ.negate r
+    | _ -> invalid_arg "rational_of: non-linear multiplication?"
+  in Syntax.ArithTerm.eval lira_ctx go t
+
 module IntegerFrac : sig
 
   (** Given a symbol [x], introduce a fresh variable [x_int] denoting its
@@ -500,19 +518,6 @@ end = struct
 
   let symbol t = t.sym
 
-  let rational_of t =
-    let go t =
-      match t with
-      | `Real r -> r
-      | `Add rationals -> List.fold_left QQ.add QQ.zero rationals
-      | `Mul rationals -> List.fold_left QQ.mul QQ.one rationals
-      | `Binop (`Div, num, denom) -> QQ.div num denom
-      | `Binop (`Mod, dividend, divisor) -> QQ.modulo dividend divisor
-      | `Unop (`Floor, r) -> QQ.of_zz (QQ.floor r)
-      | `Unop (`Neg, r) -> QQ.negate r
-      | _ -> invalid_arg "NormalTerm: non-linear multiplication?"
-    in Syntax.ArithTerm.eval lira_ctx go t
-
   let coerce_rational = function
     | None -> QQ.zero
     | Some term -> rational_of term
@@ -616,11 +621,7 @@ end = struct
          let n = match QQ.to_int t.coeff with
            | None -> failwith "NormalTerm: coefficient of distinguished symbol not integer"
            | Some n -> n in
-         let rec range n =
-           if n = 0 then [0]
-           else if n > 0 then n :: range (n - 1)
-           else n :: range (n + 1) in
-         List.map QQ.of_int (range n)
+         List.map QQ.of_int (range_towards_zero n)
        in
        let sum term n =
          { sym = t.sym
@@ -825,6 +826,8 @@ end = struct
       | `Eq -> Ctx.mk_eq
       | `Leq -> Ctx.mk_leq
       | `Lt -> Ctx.mk_lt
+      | `Modulo (mod_sym, k) ->
+         (fun lhs rhs -> Ctx.mk_app mod_sym [lhs; rhs; Ctx.mk_real k])
     in
     atomize atom (LinearTerm.simplify lhs) (LinearTerm.simplify rhs)
 
@@ -840,11 +843,13 @@ end = struct
       (Format.pp_print_list ~pp_sep:Format.pp_print_space
          (Syntax.Formula.pp lira_ctx)) l
 
-  let log_rewriting (relation : [`Eq | `Leq | `Lt]) lhs rhs result =
+  let log_rewriting (relation : [`Eq | `Leq | `Lt | `Mod of Syntax.symbol * QQ.t])
+        lhs rhs result =
     let rel_symbol = match relation with
       | `Eq -> "="
       | `Leq -> "<="
       | `Lt -> "<"
+      | `Mod (_, k) -> Format.asprintf "mod_%a" QQ.pp k
     in
     Log.logf ~level:`debug "@[@[AtomicRewriter: rewritten @[(%a %s %a)@] into@]@; %a@]@;"
       (Syntax.ArithTerm.pp lira_ctx) lhs
@@ -881,27 +886,36 @@ end = struct
 
   let mk_monomial coeff x = Ctx.mk_mul [Ctx.mk_real coeff; Ctx.mk_const x]
 
-  let mk_atomic (atom: [`Eq | `Leq | `Lt]) coeff x rhs =
+  let mk_atomic (atom: [< `Eq | `Leq | `Lt | `Mod of Syntax.symbol * QQ.t ])
+        coeff x rhs =
     match atom with
     | `Eq -> Ctx.mk_eq (mk_monomial coeff x) rhs
     | `Leq -> Ctx.mk_leq (mk_monomial coeff x) rhs
     | `Lt -> Ctx.mk_lt (mk_monomial coeff x) rhs
+    | `Mod (mod_sym, k) -> Ctx.mk_app mod_sym [mk_monomial coeff x ; rhs; Ctx.mk_real k]
+
+  let rewrite_integral_rhs (rel : [`Eq | `Mod of Syntax.symbol * QQ.t])
+        coeff x rhs =
+    (* Strengthen = or mod_k by flooring RHS and asserting that RHS is integral *)
+    let floored = Ctx.mk_floor rhs in
+    LinearTerm.simplify floored
+    |> mk_atomic rel coeff x
+    |> (fun phi -> Ctx.mk_and [phi; Ctx.mk_eq rhs floored])
 
   let rewrite_eq sort x lhs rhs =
     let coeffs_rhs = split sort x lhs rhs in
     match sort with
     | `TyIntQe ->
-       let formulas = List.map (fun (coeff, rhs) ->
-                          let floored = Ctx.mk_floor rhs in
-                          LinearTerm.simplify floored
-                          |> mk_atomic `Eq coeff x
-                          |> (fun phi -> Ctx.mk_and [phi; Ctx.mk_eq rhs floored])
-                        )
-                        coeffs_rhs
-       in Ctx.mk_or formulas
+       let formulas = List.map (fun (coeff, rhs) -> rewrite_integral_rhs `Eq coeff x rhs)
+                        coeffs_rhs in
+       let res = Ctx.mk_or formulas in
+       log_rewriting `Eq lhs rhs res;
+       res
     | `TyFracQe ->
-       List.map (fun (coeff, rhs) -> mk_atomic `Eq coeff x rhs) coeffs_rhs
-       |> Ctx.mk_or
+       let res = List.map (fun (coeff, rhs) -> mk_atomic `Eq coeff x rhs) coeffs_rhs
+                 |> Ctx.mk_or in
+       log_rewriting `Eq lhs rhs res;
+       res
 
   let rewrite_leq sort x lhs rhs =
     let coeffs_rhs = split sort x lhs rhs in
@@ -939,14 +953,69 @@ end = struct
              in
              Ctx.mk_or [mk_atomic `Lt coeff x floored; equal_case]
            )
-           coeffs_rhs
-       in Ctx.mk_or formulas
+           coeffs_rhs in
+       let res = Ctx.mk_or formulas in
+       log_rewriting `Lt lhs rhs res;
+       res
     | `TyFracQe ->
-       List.map (fun (coeff, rhs) -> mk_atomic `Lt coeff x rhs) coeffs_rhs
-       |> Ctx.mk_or
+       let res = List.map (fun (coeff, rhs) -> mk_atomic `Lt coeff x rhs) coeffs_rhs
+                 |> Ctx.mk_or in
+       log_rewriting `Lt lhs rhs res;
+       res
 
-  let rewrite_modulo _sort _x lhs rhs mod_symbol divisor =
-    Ctx.mk_app mod_symbol [lhs; rhs; divisor]
+  let rewrite_modulo sort x lhs rhs mod_symbol divisor =
+    let coeffs_rhs = split sort x lhs rhs in
+    let divisor_n = rational_of divisor in
+    match sort with
+    | `TyIntQe ->
+       let formulas =
+         List.map
+           (fun (coeff, rhs) -> rewrite_integral_rhs (`Mod (mod_symbol, divisor_n)) coeff x rhs)
+           coeffs_rhs
+       in
+       let res = Ctx.mk_or formulas in
+       log_rewriting (`Mod (mod_symbol, divisor_n)) lhs rhs res;
+       res
+    | `TyFracQe ->
+       (* nu \equiv s mod k ==> (nu)* = s*
+          ==>
+          if n > 0: (nu = (s - floor(s)) + i /\ floor(s) \equiv i mod k)
+                    for some i in {0, 1, ..., n-1},
+          if n = 0: s = floor(s) /\ s \equiv 0 mod k, ignore until we eliminate a variable in s.
+          if n < 0: n <= floor(nu) <= 0, nu = s* + floor(nu)
+          so        nu = (s - floor(s)) + i for some i in {n, n + 1, ..., 0}
+                    /\ floor(s) \equiv i mod k
+        *)
+       let adjoin_cases curr (coeff, rhs) =
+         let form_formula i =
+           let num = Ctx.mk_real (QQ.of_int i) in
+           let frac_constraint = mk_atomic `Eq coeff x
+                                   (Ctx.mk_add [ rhs
+                                               ; Ctx.mk_neg (Ctx.mk_floor rhs)
+                                               ; num]) in
+           let mod_constraint =
+             Ctx.mk_app mod_symbol [Ctx.mk_floor rhs ; num; divisor]
+           in
+           Ctx.mk_and [frac_constraint; mod_constraint]
+         in
+         let possibilities =
+           match QQ.to_int coeff with
+           | None -> invalid_arg
+                       (Format.asprintf
+                          "AtomicRewrite: rewrite_modulo: non-integral coefficient?: %a"
+                          QQ.pp coeff)
+           | Some n ->
+              if n > 0 then
+                range_towards_zero (n - 1)
+              else if n < 0 then
+                range_towards_zero n
+              else
+                []
+         in
+         List.append (List.map form_formula possibilities) curr
+       in
+       let formulas = List.fold_left adjoin_cases [] coeffs_rhs in
+       Ctx.mk_or formulas
 
 end
 
@@ -958,6 +1027,7 @@ module Eliminate : sig
 
 end = struct
 
+  (* TODO: Push simplify option and simplification to AtomicRewrite. *)
   let simplify_formula phi =
     let go phi =
       match phi with
