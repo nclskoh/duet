@@ -518,13 +518,17 @@ end = struct
   let rest_of t =
     match t.rest with
     | None -> Ctx.mk_real QQ.zero
-    | Some rest -> (* LinearTerm.simplify rest *) rest
+    | Some rest -> LinearTerm.simplify rest (* TODO: Should we simplify here? *)
 
   let term_of t =
     (* TODO: verify that it's fine to output a symbol, which may be undefined
        in the quantifier-free context before we eliminate.
      *)
-    let nx = Ctx.mk_mul [Ctx.mk_real t.coeff; Ctx.mk_const t.sym] in
+    let nx =
+      if QQ.equal t.coeff QQ.zero then Ctx.mk_real QQ.zero
+      else if QQ.equal t.coeff QQ.one then Ctx.mk_const t.sym
+      else if QQ.equal t.coeff (QQ.negate QQ.one) then Ctx.mk_neg (Ctx.mk_const t.sym)
+      else Ctx.mk_mul [Ctx.mk_real t.coeff; Ctx.mk_const t.sym] in
     match t.rest with
     | None -> nx
     | Some rest -> LinearTerm.simplify (Ctx.mk_add [nx ; rest])
