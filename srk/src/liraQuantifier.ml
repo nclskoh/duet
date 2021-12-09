@@ -102,7 +102,7 @@ let rational_of t =
     | `Binop (`Mod, dividend, divisor) -> QQ.modulo dividend divisor
     | `Unop (`Floor, r) -> QQ.of_zz (QQ.floor r)
     | `Unop (`Neg, r) -> QQ.negate r
-    | _ -> invalid_arg "rational_of: non-linear multiplication?"
+    | _ -> invalid_arg "rational_of: cannot interpret as a numeric constant"
   in Syntax.ArithTerm.eval lira_ctx go t
 
 module IntegerFrac : sig
@@ -311,16 +311,10 @@ end = struct
 
   let numeral_of t =
     let get_value term =
-      match Syntax.ArithTerm.destruct lira_ctx term with
-      | `App _
-        | `Var _
-        | `Add _
-        | `Mul _
-        | `Binop _
-        | `Unop _
-        | `Ite _
-        | `Select _ -> None
-      | `Real r -> Some r
+      try
+        Some (rational_of term)
+      with
+        Invalid_argument _ -> None
     in
     H.fold (fun term coeff curr ->
         match get_value term, curr with
@@ -358,7 +352,8 @@ end = struct
              if QQ.equal coeff QQ.zero then None
              else Some coeff
           | Some coeff, None
-            | None, Some coeff -> Some coeff) t1 t2 in
+            | None, Some coeff -> Some coeff)
+        t1 t2 in
     Log.logf ~level:`trace "@[LinearTerm: adding %a and %a gives %a@]@;" pp t1 pp t2 pp t;
     t
 
@@ -401,17 +396,13 @@ end = struct
   let negate t =
     H.map (fun _term coeff -> QQ.negate coeff) t
 
-  let of_term term =
+  let rec of_term term =
     let go t =
       match t with
       | `Real r -> real r
-      | `App (x, args) ->
-         if args <> [] then
-           invalid_arg
-             (Format.sprintf "LinearTerm: expecting constant symbols only, see %s"
-                (Syntax.show_symbol lira_ctx x))
-         else
-           app x []
+      | `App (x, args) -> app x (List.map (fun arg ->
+                                     Syntax.Expr.arith_term_of lira_ctx arg
+                                     |> of_term) args)
       | `Var (i, typ) -> var i typ
       (* TODO: Check that we don't have variables after normalization. *)
       | `Add ts -> List.fold_left add zero ts
@@ -419,7 +410,9 @@ end = struct
       | `Binop (`Div, t1, t2) -> div t1 t2
       | `Unop (`Floor, t') -> floor t'
       | `Unop (`Neg, t') -> negate t'
-      | _ -> invalid_arg "LinearTerm: cannot convert term, unsupported"
+      | `Binop (`Mod, _, _)
+        | `Ite _
+        | `Select _ -> invalid_arg "LinearTerm: cannot convert term, unsupported"
     in Syntax.ArithTerm.eval lira_ctx go term
 
   let simplify term =
