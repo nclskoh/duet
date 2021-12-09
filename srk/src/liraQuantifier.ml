@@ -1081,7 +1081,7 @@ end = struct
       | `Proposition (`App (sym, [t1; t2; t3]))
            when String.equal (Syntax.show_symbol lira_ctx sym) "mod" ->
          let f = Syntax.Expr.arith_term_of lira_ctx in
-         AtomicRewriter.rewrite_modulo sort x (f t1) (f t2) sym (f t3)
+         clean (AtomicRewriter.rewrite_modulo sort x (f t1) (f t2) sym (f t3))
       | `Proposition (`App (sym, args)) ->
          (* NK: This typechecks because we can arbitrarily instantiate
             the target ['typ] in [expr].
