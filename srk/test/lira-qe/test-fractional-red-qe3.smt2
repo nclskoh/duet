@@ -5,16 +5,11 @@
 (declare-fun |mod| (Real Real Real) (Bool))
 (declare-const |c1| (Real))
 
-; test QE reduction for nested floor and LEQ
-; FORMULA: floor(floor(floor( -3 x1 + 1 ) + 2) + floor(c1 + 1)) < 2 floor(c1 + 1)
+; test QE reduction for nested floor and <
+; FORMULA: floor(floor( -3 x1 + 1 ) + 2) + floor(c1 + 1) < 3 floor(c1 + 1)
 ; -3 < -3 x1 <= 0 ==> -2 < -3 x1 + 1 <= 1 ==> -2 <= floor(-3x1 + 1) <= 1
 ; ==> 0 <= floor(-3x1 + 1) + 2 <= 3
-; ==> 0 <= floor(floor(-3x1 + 1) + 2) <= 3
-; hence, 0 < floor(c1 + 1) \/ 
-
-floor(c1 + 1) <= 3/2 \/ 1 + floor(c1 + 1) <= 3/2
-;        \/ 2 + floor(c1 + 1) <= 3/2 \/ 3 + floor(c1 + 1) <= 3/2
-; hence, floor(c1 + 1) <= 3/2, 1/2, -1/2, -3/2.
+; hence, 0 < 2 floor(c1 + 1) \/ 1 < 2 floor(c1 + 1) \/ 2 < 2 floor(c1 + 1) \/ 3 < 2 floor(c1 + 1)
 
 (assert
  (exists ((|x1| Real) )
@@ -24,6 +19,6 @@ floor(c1 + 1) <= 3/2 \/ 1 + floor(c1 + 1) <= 3/2
 		 2)
 	      )
       (to_int (+ |c1| 1)))
-     (* 2 (to_int (+ |c1| 1)))
+     (* 3 (to_int (+ |c1| 1)))
      )
     ))
