@@ -168,23 +168,6 @@ end = struct
       if Syntax.Symbol.compare sym x = 0 then x'
       else Ctx.mk_const sym in
     (xi, u, Syntax.substitute_const lira_ctx sigma phi)
-    (*
-    Syntax.Formula.eval lira_ctx
-      (function
-       | `Tru -> Ctx.mk_true
-       | `Fls -> Ctx.mk_false
-       | `And l ->
-       | `Or l ->
-       | `Not phi ->
-       | `Quantify _ ->
-          invalid_arg "weipsfenning_transform: formula should be quantifier-free"
-       | `Atom _ ->
-       | `Proposition _ ->
-       | `Ite _ ->
-          invalid_arg "weipsfenning_transform: ITE should have been removed"
-      )
-      phi
-     *)
 
 end
 
@@ -434,29 +417,6 @@ module NormalTerm : sig
   (** A normalized term is conceptually of the form n x + s, where
       n \in ZZ, x is a variable (symbol), and s is a term not containing x.
    *)
-
-  (**
-     a. Make terms into PA and LRA terms, which are of the form
-        [n * xi + s] or [n * u + s], where [s] is free of [xi] or [u].
-
-        - 0, 1, variable ---> unchanged
-        - c * x, x * c ---> simplify constants
-        - T + T ---> recurse, group 'like' parts, simplify constants
-        - floor(T) --->
-          - Recurse on T to get [T = n * xi + s] or [T = nu + s].
-          - Check sort of xi/u
-          - If xi, distribute floor to get [nu + floor(s)].
-          - If u, [s <= nu + s < n + s] or [n + s < nu + s <= s], so
-            [floor(nu + s) = floor(s), 1 + floor(s), ..., n + floor(s)], or
-            [floor(nu + s) = n + floor(s), (n + 1) + floor(s), ..., floor(s)].
-
-           For substitution QE: replace [floor(nu + s)] in the formula here
-           with [k + floor(s)] and restart (a).
-
-           For implementation: generalize "term-purification" algorithm to
-           return a set of terms, and these possibilities are returned.
-   *)
-
 
   type t
 
@@ -778,52 +738,6 @@ module AtomicRewriter : sig
 
 end = struct
 
-  (*
-    b. Make atomic formulas into PA and LRA formulas:
-
-          i. Normalize all atoms to be of the form [n xi R s], [nu R s],
-             or [s R t] with s, t free of xi/u.
-
-          ii. Rewrite atomic formulas containing xi/u.
-
-          - n xi = s ---> n xi = floor(s) /\ s = floor(s)
-          - n u = s ---> unchanged
-          - n xi < s ---> n xi < floor(s) \/ (n xi = floor(s) /\ floor(s) < s)
-          - n u < s ---> unchanged
-          - n xi <= s ---> n xi <= floor(s)
-          - n u <= s ---> unchanged
-          - n xi = s mod k ---> n xi = floor(s) mod k /\ s = floor(s)
-          - n u = s mod k:
-            "Multiply" by -1 if necessary to make n > 0.
-
-            nu - s = floor(nu) + (nu)* - (floor(s) + s* ) \in kZZ \subseteq ZZ.
-            Hence, (nu)* - s* \in ZZ.
-            Since 0 <= (nu)*, s* < 1, -1 < (nu)* - s* < 1, so (nu)* - s* = 0,
-            i.e., [(nu)* = s*].
-
-            Since n > 0, [0 <= nu < n], so floor(nu) = 0, 1, ..., n - 1.
-            Consequently,
-            [nu = floor(nu) + (nu)* = i + (nu)* = i + s*] for some i = 0, ..., n - 1,
-            i.e., [nu = i + (s - floor(s))] for i = 0, ..., n - 1.
-
-            We also have [floor(nu) + (nu)* - (floor(s) + s* \in kZZ],
-            so [floor(nu) - floor(s) \in kZZ].
-            When floor(nu) = i, [floor(s) = i mod k].
-   *)
-
-  (*
-  let simplify_atomic atom lhs rhs =
-    let atomize atom =
-      match atom with
-      | `Eq -> Ctx.mk_eq
-      | `Leq -> Ctx.mk_leq
-      | `Lt -> Ctx.mk_lt
-      | `Modulo (mod_sym, k) ->
-         (fun lhs rhs -> Ctx.mk_app mod_sym [lhs; rhs; Ctx.mk_real k])
-    in
-    atomize atom (LinearTerm.simplify lhs) (LinearTerm.simplify rhs)
- *)
-
   let pp_lhs_rhs_list l =
     Format.pp_print_list ~pp_sep:Format.pp_print_space
       (fun fmt (coeff, rhs) -> Format.fprintf fmt "(LHS coeff: %a, RHS term: %a)"
@@ -864,9 +778,11 @@ end = struct
                                       (Syntax.ArithTerm.pp lira_ctx) rest; rest)
                     |> Ctx.mk_neg
                     |> LinearTerm.simplify (* probably a good idea to always simplify *)
-                    |> (fun simplified -> Log.logf
-                                            ~level:`trace "AtomicRewriter: simplified negated rest: %a"
-                                            (Syntax.ArithTerm.pp lira_ctx) simplified; simplified)
+                    |>
+                      (fun simplified ->
+                        Log.logf
+                          ~level:`trace "AtomicRewriter: simplified negated rest: %a"
+                          (Syntax.ArithTerm.pp lira_ctx) simplified; simplified)
           in
           (NormalTerm.coeff t, rhs))
         terms
