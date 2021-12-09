@@ -127,25 +127,30 @@ end
 
 module AtomicRewriter : sig
 
-  val simplify_atomic : [`Eq | `Leq | `Lt]
-                        -> Ctx.arith_term -> Ctx.arith_term -> Ctx.formula
+  val rewrite_eq :
+    ?simplify:[`Normalize | `Simplify | `KeepOriginal]
+    -> [`TyIntQe | `TyFracQe]
+    -> Syntax.symbol
+    -> Ctx.arith_term -> Ctx.arith_term -> Ctx.formula
 
-  val rewrite_eq : [`TyIntQe | `TyFracQe]
-                   -> Syntax.symbol
-                   -> Ctx.arith_term -> Ctx.arith_term -> Ctx.formula
+  val rewrite_leq :
+    ?simplify:[`Normalize | `Simplify | `KeepOriginal]
+    -> [`TyIntQe | `TyFracQe]
+    -> Syntax.symbol
+    -> Ctx.arith_term -> Ctx.arith_term -> Ctx.formula
 
-  val rewrite_leq : [`TyIntQe | `TyFracQe]
-                   -> Syntax.symbol
-                   -> Ctx.arith_term -> Ctx.arith_term -> Ctx.formula
+  val rewrite_lt :
+    ?simplify:[`Normalize | `Simplify | `KeepOriginal]
+    -> [`TyIntQe | `TyFracQe]
+    -> Syntax.symbol
+    -> Ctx.arith_term -> Ctx.arith_term -> Ctx.formula
 
-  val rewrite_lt : [`TyIntQe | `TyFracQe]
-                   -> Syntax.symbol
-                   -> Ctx.arith_term -> Ctx.arith_term -> Ctx.formula
-
-  val rewrite_modulo : [`TyIntQe | `TyFracQe]
-                       -> Syntax.symbol
-                       -> Ctx.arith_term -> Ctx.arith_term
-                       -> Syntax.symbol (* TODO: remove the need for this modulo symbol *)
-                       -> Ctx.arith_term
-                       -> Ctx.formula
+  val rewrite_modulo :
+    ?simplify:[`Normalize | `Simplify | `KeepOriginal]
+    -> [`TyIntQe | `TyFracQe]
+    -> Syntax.symbol
+    -> Ctx.arith_term -> Ctx.arith_term
+    -> Syntax.symbol (* TODO: remove the need for this modulo symbol *)
+    -> Ctx.arith_term
+    -> Ctx.formula
 end
