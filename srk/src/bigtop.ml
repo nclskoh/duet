@@ -214,6 +214,7 @@ let spec_list = [
    ],
    " Generate a random formula");
 
+  (*
   ("-chc",
    Arg.String (fun file ->
        let open Iteration in
@@ -238,6 +239,7 @@ let spec_list = [
          Format.std_formatter
          (Chc.Relation.Set.enum rels)),
    " Output solution to system of constrained horn clauses");
+   *)
 
   ("-verbosity",
    Arg.String (fun v -> Log.verbosity_level := (Log.level_of_string v)),
