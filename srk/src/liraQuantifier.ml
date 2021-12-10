@@ -84,15 +84,17 @@
 
 (* module Ctx = SrkAst.Ctx *)
 
-module Ctx = Syntax.MakeContext ()
-let lira_ctx = Ctx.context
+(*
+  module Ctx = Syntax.MakeContext ()
+  let lira_ctx = Ctx.context
+ *)
 
 let rec range_towards_zero n =
   if n = 0 then [0]
   else if n > 0 then n :: range_towards_zero (n - 1)
   else n :: range_towards_zero (n + 1)
 
-let rational_of t =
+let rational_of srk t =
   let go t =
     match t with
     | `Real r -> r
@@ -103,7 +105,7 @@ let rational_of t =
     | `Unop (`Floor, r) -> QQ.of_zz (QQ.floor r)
     | `Unop (`Neg, r) -> QQ.negate r
     | _ -> invalid_arg "rational_of: cannot interpret as a numeric constant"
-  in Syntax.ArithTerm.eval lira_ctx go t
+  in Syntax.ArithTerm.eval srk go t
 
 module IntegerFrac : sig
 
@@ -111,11 +113,11 @@ module IntegerFrac : sig
       integer part and a fresh variable [x_frac] denoting its fractional part.
    *)
 
-  val register_int_frac_symbols_of : Syntax.symbol -> unit
+  val register_int_frac_symbols_of : 'a Syntax.context -> Syntax.symbol -> unit
 
-  val int_symbol_of : Syntax.symbol -> Syntax.symbol
+  val int_symbol_of : 'a Syntax.context -> Syntax.symbol -> Syntax.symbol
 
-  val frac_symbol_of : Syntax.symbol -> Syntax.symbol
+  val frac_symbol_of : 'a Syntax.context -> Syntax.symbol -> Syntax.symbol
 
 end = struct
 
@@ -125,29 +127,29 @@ end = struct
 
   let make_int s = annotate s "int"
 
-  let register_int_frac_symbols_of s =
+  let register_int_frac_symbols_of srk s =
     (* When formula was normalized (prenexified), the quantified variable
        should have been added to the context as a named symbol
      *)
-    let name = Syntax.show_symbol lira_ctx s in
+    let name = Syntax.show_symbol srk s in
     let int_name = make_int name in
     let frac_name = make_frac name in
-    if (Syntax.is_registered_name lira_ctx int_name || Syntax.is_registered_name lira_ctx frac_name)
+    if (Syntax.is_registered_name srk int_name || Syntax.is_registered_name srk frac_name)
     then
       invalid_arg "Integer or fractional variables to introduce are already in context"
     else
-      (Syntax.register_named_symbol lira_ctx int_name (`TyInt :> Syntax.typ);
-       Syntax.register_named_symbol lira_ctx frac_name (`TyReal :> Syntax.typ))
+      (Syntax.register_named_symbol srk int_name (`TyInt :> Syntax.typ);
+       Syntax.register_named_symbol srk frac_name (`TyReal :> Syntax.typ))
 
-  let int_symbol_of s =
-    Syntax.show_symbol lira_ctx s
+  let int_symbol_of srk s =
+    Syntax.show_symbol srk s
     |> make_int
-    |> Syntax.get_named_symbol lira_ctx
+    |> Syntax.get_named_symbol srk
 
-  let frac_symbol_of s =
-    Syntax.show_symbol lira_ctx s
+  let frac_symbol_of srk s =
+    Syntax.show_symbol srk s
     |> make_frac
-    |> Syntax.get_named_symbol lira_ctx
+    |> Syntax.get_named_symbol srk
 
 end
 
@@ -155,23 +157,25 @@ module SplitVariables : sig
 
   (** phi ---> phi[x |-> x_int + x_frac] *)
 
-  val transform : Syntax.symbol -> Ctx.formula -> Syntax.symbol * Syntax.symbol * Ctx.formula
+  val transform : 'a Syntax.context
+                  -> Syntax.symbol -> 'a Syntax.formula
+                  -> Syntax.symbol * Syntax.symbol * 'a Syntax.formula
 
 end = struct
 
-  let transform x phi =
-    IntegerFrac.register_int_frac_symbols_of x;
-    let xi = IntegerFrac.int_symbol_of x in
-    let u = IntegerFrac.frac_symbol_of x in
-    let x' = Ctx.mk_add [Ctx.mk_const xi; Ctx.mk_const u] in
+  let transform srk x phi =
+    IntegerFrac.register_int_frac_symbols_of srk x;
+    let xi = IntegerFrac.int_symbol_of srk x in
+    let u = IntegerFrac.frac_symbol_of srk x in
+    let x' = Syntax.mk_add srk [Syntax.mk_const srk xi; Syntax.mk_const srk u] in
     let sigma sym =
       if Syntax.Symbol.compare sym x = 0 then x'
-      else Ctx.mk_const sym in
-    (xi, u, Syntax.substitute_const lira_ctx sigma phi)
+      else Syntax.mk_const srk sym in
+    (xi, u, Syntax.substitute_const srk sigma phi)
 
 end
 
-module LinearTerm : sig
+module LinearTerm (Ctx : Syntax.Context) : sig
 
   (*
       t ::= r
@@ -244,6 +248,8 @@ end = struct
                  let hash = Syntax.ArithTerm.hash
                end)
 
+  let srk = Ctx.context
+
   (** Keys are simplified terms without coefficients, and values are non-zero coefficients.
       A non-zero rational number r is represented with key "1" and value r;
       0 is itself represented by the empty table.
@@ -260,7 +266,7 @@ end = struct
       begin
         H.iter (fun term coeff ->
             Format.fprintf Format.str_formatter "(term: %a, coeff: %a), "
-              (Syntax.ArithTerm.pp lira_ctx)
+              (Syntax.ArithTerm.pp srk)
               term QQ.pp coeff) t;
         let s = Format.flush_str_formatter () in
         Format.fprintf fmt "%s" s
@@ -272,7 +278,7 @@ end = struct
           if QQ.equal coeff QQ.zero then
             invalid_arg "LinearTerm: to_term: coefficient in table should always be non-zero"
           else
-            match Syntax.ArithTerm.destruct lira_ctx term with
+            match Syntax.ArithTerm.destruct srk term with
             | `Real r when QQ.equal r QQ.one ->
                Some (Ctx.mk_real coeff)
             | _ when QQ.equal coeff QQ.one ->
@@ -295,7 +301,7 @@ end = struct
   let numeral_of t =
     let get_value term =
       try
-        Some (rational_of term)
+        Some (rational_of srk term)
       with
         Invalid_argument _ -> None
     in
@@ -384,7 +390,7 @@ end = struct
       match t with
       | `Real r -> real r
       | `App (x, args) -> app x (List.map (fun arg ->
-                                     Syntax.Expr.arith_term_of lira_ctx arg
+                                     Syntax.Expr.arith_term_of srk arg
                                      |> of_term) args)
       | `Var (i, typ) -> var i typ
       (* TODO: Check that we don't have variables after normalization. *)
@@ -396,23 +402,23 @@ end = struct
       | `Binop (`Mod, _, _)
         | `Ite _
         | `Select _ -> invalid_arg "LinearTerm: cannot convert term, unsupported"
-    in Syntax.ArithTerm.eval lira_ctx go term
+    in Syntax.ArithTerm.eval srk go term
 
   let simplify term =
     term
     |> of_term
     |> (fun converted -> Log.logf ~level:`trace "@[LinearTerm: of_term(%a) = %a@]@;"
-                           (Syntax.ArithTerm.pp lira_ctx) term
+                           (Syntax.ArithTerm.pp srk) term
                            pp converted
                        ; converted)
     |> to_term
     |> (fun res -> Log.logf ~level:`trace "@[LinearTerm: to_term(...) = %a@]@;"
-                     (Syntax.ArithTerm.pp lira_ctx) res
+                     (Syntax.ArithTerm.pp srk) res
                  ; res)
 
 end
 
-module NormalTerm : sig
+module NormalTerm (Ctx : Syntax.Context) : sig
 
   (** A normalized term is conceptually of the form n x + s, where
       n \in ZZ, x is a variable (symbol), and s is a term not containing x.
@@ -455,6 +461,10 @@ module NormalTerm : sig
 
 end = struct
 
+  let srk = Ctx.context
+
+  module LT = LinearTerm(Ctx)
+
   type t = { sym : Syntax.symbol
            ; coeff : QQ.t
            ; rest : Ctx.arith_term option }
@@ -462,8 +472,8 @@ end = struct
   let pp fmt t =
     Format.fprintf fmt "[%a %a + %a]"
       QQ.pp t.coeff
-      (Syntax.pp_symbol lira_ctx) t.sym
-      (Format.pp_print_option (Syntax.ArithTerm.pp lira_ctx)) t.rest
+      (Syntax.pp_symbol srk) t.sym
+      (Format.pp_print_option (Syntax.ArithTerm.pp srk)) t.rest
 
   let zero s = { sym = s ; coeff = QQ.zero ; rest = None }
 
@@ -473,12 +483,12 @@ end = struct
 
   let coerce_rational = function
     | None -> QQ.zero
-    | Some term -> rational_of term
+    | Some term -> rational_of srk term
 
   let rest_of t =
     match t.rest with
     | None -> Ctx.mk_real QQ.zero
-    | Some rest -> LinearTerm.simplify rest (* TODO: Should we simplify here? *)
+    | Some rest -> LT.simplify rest (* TODO: Should we simplify here? *)
 
   let term_of t =
     (* TODO: verify that it's fine to output a symbol, which may be undefined
@@ -492,7 +502,7 @@ end = struct
     in
     match t.rest with
     | None -> nx
-    | Some rest -> LinearTerm.simplify (Ctx.mk_add [nx ; rest])
+    | Some rest -> LT.simplify (Ctx.mk_add [nx ; rest])
 
   let add_sym r t =
     { t with coeff = QQ.add r t.coeff }
@@ -601,7 +611,7 @@ end = struct
               List.map (sum (Some (Ctx.mk_floor rest))) possibilities
          in
          Log.logf ~level:`debug "@[NormalTerm for %a: fractional floor(%a) = %a@]@;"
-           (Syntax.pp_symbol lira_ctx) t.sym
+           (Syntax.pp_symbol srk) t.sym
            pp t
            (Format.pp_print_list ~pp_sep:Format.pp_print_space pp)
            result;
@@ -610,25 +620,29 @@ end = struct
 
 end
 
-module NormalizeTerm : sig
+module NormalizeTerm (Ctx : Syntax.Context): sig
+
+  module NT : module type of NormalTerm (Ctx)
 
   (** Given a term, return the set of possible normal terms corresponding to it.
    *)
   val normalize_term : [`TyIntQe | `TyFracQe]
                        -> Syntax.symbol
-                       -> Ctx.arith_term -> NormalTerm.t list
+                       -> Ctx.arith_term -> NT.t list
 
   (* Lift binary operation on normal terms to binary operation on sets
      of normal terms; (A, B) |-> { a op b : a in A, b in B }.
    *)
-  val binary_op : (NormalTerm.t -> NormalTerm.t -> NormalTerm.t)
-                  -> NormalTerm.t list -> NormalTerm.t list
-                  -> NormalTerm.t list
+  val binary_op : (NT.t -> NT.t -> NT.t)
+                  -> NT.t list -> NT.t list
+                  -> NT.t list
 
 end = struct
 
+  module NT = NormalTerm(Ctx)
+
   let pp = Format.pp_print_list ~pp_sep:Format.pp_print_space
-             NormalTerm.pp
+             NT.pp
 
   let rec binary_product op l1 l2 =
     match l1 with
@@ -652,22 +666,22 @@ end = struct
       pp l1 pp l2 pp l;
     l
 
-  let all_sums s = cartesian_product NormalTerm.add (NormalTerm.zero s)
+  let all_sums s = cartesian_product NT.add (NT.zero s)
 
   let all_products s =
-    cartesian_product NormalTerm.mul
-      (NormalTerm.zero s |> NormalTerm.add_rest (Ctx.mk_real QQ.one))
+    cartesian_product NT.mul
+      (NT.zero s |> NT.add_rest (Ctx.mk_real QQ.one))
 
   let normalize_term (sort: [`TyIntQe | `TyFracQe]) x term =
     let go term =
       match term with
-      | `Real r -> [NormalTerm.zero x |> NormalTerm.add_rest (Ctx.mk_real r)]
+      | `Real r -> [NT.zero x |> NT.add_rest (Ctx.mk_real r)]
       | `App (sym, args) ->
          if args = [] then
            if Syntax.Symbol.compare sym x = 0 then
-             [ NormalTerm.zero x |> NormalTerm.add_sym QQ.one ]
+             [ NT.zero x |> NT.add_sym QQ.one ]
            else
-             [ NormalTerm.zero x |> NormalTerm.add_rest (Ctx.mk_app sym args) ]
+             [ NT.zero x |> NT.add_rest (Ctx.mk_app sym args) ]
          else
            invalid_arg "normalize_term: unexpected function symbol"
       | `Var (_i, (_typ : Syntax.typ_arith)) ->
@@ -681,13 +695,13 @@ end = struct
       | `Add l -> all_sums x l (* recursive assumption for eliminator *)
       | `Mul l -> all_products x l
       | `Binop (`Div, num, denum) ->
-         binary_product NormalTerm.div num denum
+         binary_product NT.div num denum
       | `Binop (`Mod, dividend, divisor) ->
-         binary_product NormalTerm.modulo dividend divisor
+         binary_product NT.modulo dividend divisor
       | `Unop (`Floor, terms) ->
          let res =
            List.fold_left
-             (fun curr t -> List.append curr (NormalTerm.floor sort t))
+             (fun curr t -> List.append curr (NT.floor sort t))
              []
              terms
          in
@@ -697,17 +711,17 @@ end = struct
 
       | `Unop (`Neg, terms) ->
          terms
-         |> List.map NormalTerm.negate
+         |> List.map NT.negate
       | `Ite _
         | `Select _ -> invalid_arg "NormalizeTerm: unsupported" in
-    let res = Syntax.ArithTerm.eval lira_ctx go term in
+    let res = Syntax.ArithTerm.eval Ctx.context go term in
     Log.logf ~level:`debug "@[@[NormalizeTerm: normalizing @[%a@] gives@]@; @[%a@]@]@;"
-      (Syntax.ArithTerm.pp lira_ctx) term pp res;
+      (Syntax.ArithTerm.pp Ctx.context) term pp res;
     res
 
 end
 
-module AtomicRewriter : sig
+module AtomicRewriter (Ctx : Syntax.Context) : sig
 
   val rewrite_eq :
     ?simplify:[`Normalize | `Simplify | `KeepOriginal]
@@ -738,17 +752,22 @@ module AtomicRewriter : sig
 
 end = struct
 
+  let srk = Ctx.context
+
+  module Normalize = NormalizeTerm(Ctx)
+  module LT = LinearTerm(Ctx)
+
   let pp_lhs_rhs_list l =
     Format.pp_print_list ~pp_sep:Format.pp_print_space
       (fun fmt (coeff, rhs) -> Format.fprintf fmt "(LHS coeff: %a, RHS term: %a)"
-                                 QQ.pp coeff (Syntax.ArithTerm.pp lira_ctx) rhs) l
+                                 QQ.pp coeff (Syntax.ArithTerm.pp srk) rhs) l
 
   let log_formulas prefix l =
     Log.logf ~level:`trace
       "@[AtomicRewriter: %s: %a@]@;"
       prefix
       (Format.pp_print_list ~pp_sep:Format.pp_print_space
-         (Syntax.Formula.pp lira_ctx)) l
+         (Syntax.Formula.pp srk)) l
 
   let log_rewriting (relation : [`Eq | `Leq | `Lt | `Modulo of Syntax.symbol * QQ.t])
         lhs rhs result =
@@ -759,37 +778,37 @@ end = struct
       | `Modulo (_, k) -> Format.asprintf "mod_%a" QQ.pp k
     in
     Log.logf ~level:`debug "@[@[AtomicRewriter: rewritten @[(%a %s %a)@] into@]@; %a@]@;"
-      (Syntax.ArithTerm.pp lira_ctx) lhs
+      (Syntax.ArithTerm.pp srk) lhs
       rel_symbol
-      (Syntax.ArithTerm.pp lira_ctx) rhs
-      (Syntax.Formula.pp lira_ctx) result
+      (Syntax.ArithTerm.pp srk) rhs
+      (Syntax.Formula.pp srk) result
 
   let split sort x lhs rhs =
-    let lhs_terms = NormalizeTerm.normalize_term sort x lhs in
-    let rhs_terms = NormalizeTerm.normalize_term sort x rhs in
-    let terms = NormalizeTerm.binary_op
-                  (fun t1 t2 -> NormalTerm.add t1 (NormalTerm.negate t2))
+    let lhs_terms = Normalize.normalize_term sort x lhs in
+    let rhs_terms = Normalize.normalize_term sort x rhs in
+    let terms = Normalize.binary_op
+                  (fun t1 t2 -> Normalize.NT.add t1 (Normalize.NT.negate t2))
                   lhs_terms rhs_terms in
     let coeffs_rhs =
       List.map
         (fun t ->
-          let rhs = NormalTerm.rest_of t
+          let rhs = Normalize.NT.rest_of t
                     |> (fun rest -> Log.logf ~level:`trace "AtomicRewriter: Rest: %a"
-                                      (Syntax.ArithTerm.pp lira_ctx) rest; rest)
+                                      (Syntax.ArithTerm.pp srk) rest; rest)
                     |> Ctx.mk_neg
-                    |> LinearTerm.simplify (* probably a good idea to always simplify *)
+                    |> LT.simplify (* probably a good idea to always simplify *)
                     |>
                       (fun simplified ->
                         Log.logf
                           ~level:`trace "AtomicRewriter: simplified negated rest: %a"
-                          (Syntax.ArithTerm.pp lira_ctx) simplified; simplified)
+                          (Syntax.ArithTerm.pp srk) simplified; simplified)
           in
-          (NormalTerm.coeff t, rhs))
+          (Normalize.NT.coeff t, rhs))
         terms
     in
     Log.logf ~level:`trace "@[AtomicRewriter: splitting (%a, %a) gives %a@]@;"
-      (Syntax.ArithTerm.pp lira_ctx) lhs
-      (Syntax.ArithTerm.pp lira_ctx) rhs
+      (Syntax.ArithTerm.pp srk) lhs
+      (Syntax.ArithTerm.pp srk) rhs
       pp_lhs_rhs_list coeffs_rhs;
     coeffs_rhs
 
@@ -801,9 +820,9 @@ end = struct
         (atom: [< `Eq | `Leq | `Lt | `Modulo of Syntax.symbol * QQ.t ])
         lhs rhs =
     let lhs, rhs = match simplify with
-      | `Simplify -> LinearTerm.simplify lhs, LinearTerm.simplify rhs
+      | `Simplify -> LT.simplify lhs, LT.simplify rhs
       | `Normalize ->
-         LinearTerm.simplify (Ctx.mk_add [lhs; Ctx.mk_neg rhs]),
+         LT.simplify (Ctx.mk_add [lhs; Ctx.mk_neg rhs]),
          Ctx.mk_real QQ.zero
       | `KeepOriginal -> lhs, rhs
     in
@@ -898,7 +917,7 @@ end = struct
 
   let rewrite_modulo ?simplify:(simplify = `Simplify) sort x lhs rhs mod_symbol divisor =
     let coeffs_rhs = split sort x lhs rhs in
-    let divisor_n = rational_of divisor in
+    let divisor_n = rational_of srk divisor in
     match sort with
     | `TyIntQe ->
        let formulas =
@@ -957,7 +976,7 @@ end = struct
 
 end
 
-module Eliminate : sig
+module Eliminate (Ctx : Syntax.Context) : sig
 
   val reduce : ?simplify:[`Normalize | `Simplify | `KeepOriginal]
                -> [`TyIntQe | `TyFracQe] -> Syntax.symbol
@@ -989,14 +1008,17 @@ end = struct
          Ctx.mk_app sym args
       | `Ite _ -> invalid_arg "Eliminate: ITE should have been removed"
     in
-    Syntax.Formula.eval lira_ctx go phi
+    Syntax.Formula.eval srk go phi
    *)
+
+  let srk = Ctx.context
+  module AR = AtomicRewriter(Ctx)
 
   let reduce ?simplify:(simplify = `Simplify) sort x phi =
     (*
     let clean psi = match simplify with
       | `Normalize -> simplify_formula psi
-                      |> Quantifier.normalize lira_ctx |> snd
+                      |> Quantifier.normalize srk |> snd
       | `Simplify -> simplify_formula psi
       | `KeepOriginal -> psi
     in
@@ -1010,20 +1032,18 @@ end = struct
       | `Not phi -> Ctx.mk_not phi
       | `Quantify _ -> invalid_arg "Eliminate: expecting QF formula"
       | `Atom (`Arith (`Eq, t1, t2)) ->
-         (* AtomicRewriter.simplify_atomic `Eq t1 t2 *)
-         AtomicRewriter.rewrite_eq ~simplify sort x t1 t2
+         AR.rewrite_eq ~simplify sort x t1 t2
       | `Atom (`Arith (`Leq, t1, t2)) ->
-      (* AtomicRewriter.simplify_atomic `Leq t1 t2 *)
-         AtomicRewriter.rewrite_leq ~simplify sort x t1 t2
+         AR.rewrite_leq ~simplify sort x t1 t2
       | `Atom (`Arith (`Lt, t1, t2)) ->
-         AtomicRewriter.rewrite_lt ~simplify sort x t1 t2
+         AR.rewrite_lt ~simplify sort x t1 t2
       | `Atom (`ArrEq _) -> invalid_arg "Eliminate: array theory not supported"
       | `Proposition (`Var _) ->
          invalid_arg "Eliminate: not expecting a propositional variable"
       | `Proposition (`App (sym, [t1; t2; t3]))
-           when String.equal (Syntax.show_symbol lira_ctx sym) "mod" ->
-         let f = Syntax.Expr.arith_term_of lira_ctx in
-         AtomicRewriter.rewrite_modulo ~simplify sort x (f t1) (f t2) sym (f t3)
+           when String.equal (Syntax.show_symbol srk sym) "mod" ->
+         let f = Syntax.Expr.arith_term_of srk in
+         AR.rewrite_modulo ~simplify sort x (f t1) (f t2) sym (f t3)
       | `Proposition (`App (sym, args)) ->
          (* NK: This typechecks because we can arbitrarily instantiate
             the target ['typ] in [expr].
@@ -1036,70 +1056,72 @@ end = struct
          Ctx.mk_app sym args
       | `Ite _ -> invalid_arg "Eliminate: ITE should have been removed"
     in
-    let res = Syntax.Formula.eval lira_ctx go phi in
+    let res = Syntax.Formula.eval srk go phi in
     Log.logf ~level:`debug
       "@[Eliminate: reduce: eliminating @[%a@] from @[%a@] yields @[%a@]@;"
-      (Syntax.pp_symbol lira_ctx) x
-      (Syntax.Formula.pp lira_ctx) phi
-      (Syntax.Formula.pp lira_ctx) res;
+      (Syntax.pp_symbol srk) x
+      (Syntax.Formula.pp srk) phi
+      (Syntax.Formula.pp srk) res;
     res
 
 end
 
-module Test = struct
+module LiraQe (Ctx : Syntax.Context) = struct
+
+  let srk = Ctx.context
+  module Elim = Eliminate(Ctx)
 
   let qe_as (sort: [`TyIntQe | `TyFracQe]) (phi: Ctx.t Syntax.formula) =
-    let (prefix, qf) = Quantifier.normalize lira_ctx phi in
-    let qf_cleaned = Syntax.eliminate_ite lira_ctx qf in
-    Log.logf ~level:`always "@[Input formula is: %a@]@;" (Syntax.Expr.pp lira_ctx) phi;
+    let (prefix, qf) = Quantifier.normalize srk phi in
+    let qf_cleaned = Syntax.eliminate_ite srk qf in
+    Log.logf ~level:`always "@[Input formula is: %a@]@;" (Syntax.Expr.pp srk) phi;
     Log.logf ~level:`always
-      "@[@[Quantifier-free part after normalization is:@]@; @[%a@]@]@;" (Syntax.Expr.pp lira_ctx)
+      "@[@[Quantifier-free part after normalization is:@]@; @[%a@]@]@;" (Syntax.Expr.pp srk)
       qf_cleaned;
     let exists x phi =
-      Eliminate.reduce sort x phi
+      Elim.reduce sort x phi
     in
     List.fold_right
       (fun (qt, x) qf ->
         match qt with
         | `Exists ->
-           exists x (snd (Quantifier.normalize lira_ctx qf))
+           exists x (snd (Quantifier.normalize srk qf))
         | `Forall ->
-           Ctx.mk_not (exists x (snd (Quantifier.normalize lira_ctx
+           Ctx.mk_not (exists x (snd (Quantifier.normalize srk
+                                        (Ctx.mk_not qf)))))
+      prefix (* fold over quantifiers *)
+      qf_cleaned
+
+  let weispfenning_qe
+        (x : Syntax.symbol)
+        (qf_formula : Ctx.formula) : Ctx.formula =
+    SplitVariables.transform srk x qf_formula
+    |> (fun (xi, u, phi) ->
+      Elim.reduce `TyIntQe xi phi
+      |> Elim.reduce `TyFracQe u)
+
+  let qe phi =
+    (* essentially stolen from Quantifier.ml *)
+    (* Normalization turns all negated formulas into positive formulas by using < and <=,
+     turns all de Bruijn indices into constant symbols, etc.
+     *)
+    let (prefix, qf) = Quantifier.normalize srk phi in
+    let qf_cleaned = Syntax.eliminate_ite srk qf in
+    Log.logf ~level:`always "@[Input formula is: %a@]@;" (Syntax.Expr.pp srk) phi;
+    Log.logf "@[Quantifier-free part before ITE elim is: %a@]@;" (Syntax.Expr.pp srk) qf;
+    Log.logf ~level:`always
+      "@[Quantifier-free part after ITE elim is: %a@]@;" (Syntax.Expr.pp srk) qf_cleaned;
+    let exists x phi = weispfenning_qe x phi
+    in
+    List.fold_right
+      (fun (qt, x) qf ->
+        match qt with
+        | `Exists ->
+           exists x (snd (Quantifier.normalize srk qf))
+        | `Forall ->
+           Ctx.mk_not (exists x (snd (Quantifier.normalize srk
                                         (Ctx.mk_not qf)))))
       prefix (* fold over quantifiers *)
       qf_cleaned
 
 end
-
-let weispfenning_qe
-      (x : Syntax.symbol)
-      (qf_formula : Ctx.t Syntax.formula) : Ctx.t Syntax.formula =
-  (* Syntax.Formula.eval lira_ctx weipsfenning_transform qf_formula *)
-  SplitVariables.transform x qf_formula
-  |> (fun (xi, u, phi) ->
-    Eliminate.reduce `TyIntQe xi phi
-    |> Eliminate.reduce `TyFracQe u)
-
-let qe phi =
-  (* essentially stolen from Quantifier.ml *)
-  (* Normalization turns all negated formulas into positive formulas by using < and <=,
-     turns all de Bruijn indices into constant symbols, etc.
-   *)
-  let (prefix, qf) = Quantifier.normalize lira_ctx phi in
-  let qf_cleaned = Syntax.eliminate_ite lira_ctx qf in
-  Log.logf ~level:`always "@[Input formula is: %a@]@;" (Syntax.Expr.pp lira_ctx) phi;
-  Log.logf "@[Quantifier-free part before ITE elim is: %a@]@;" (Syntax.Expr.pp lira_ctx) qf;
-  Log.logf ~level:`always
-    "@[Quantifier-free part after ITE elim is: %a@]@;" (Syntax.Expr.pp lira_ctx) qf_cleaned;
-  let exists x phi = weispfenning_qe x phi
-  in
-  List.fold_right
-    (fun (qt, x) qf ->
-      match qt with
-      | `Exists ->
-         exists x (snd (Quantifier.normalize lira_ctx qf))
-      | `Forall ->
-         Ctx.mk_not (exists x (snd (Quantifier.normalize lira_ctx
-                                      (Ctx.mk_not qf)))))
-    prefix (* fold over quantifiers *)
-    qf_cleaned
