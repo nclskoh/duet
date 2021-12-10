@@ -3,8 +3,10 @@ open Srk
 
 (** Preamble stolen from bigtop.ml *)
 
-module Ctx = LiraQuantifier.Ctx
+module Ctx = SrkAst.Ctx
 let srk = Ctx.context
+
+module Qe = LiraQuantifier.LiraQe(Ctx)
 
 (* From bigtop.ml *)
 let file_contents filename =
@@ -21,9 +23,9 @@ let load_smtlib2 filename =
 let do_qe sort file =
   load_smtlib2 file
   |> (fun phi -> match sort with
-                 | `Std -> LiraQuantifier.qe phi
-                 | `TyIntQe -> LiraQuantifier.Test.qe_as `TyIntQe phi
-                 | `TyFracQe -> LiraQuantifier.Test.qe_as `TyFracQe phi
+                 | `Std -> Qe.qe phi
+                 | `TyIntQe -> Qe.qe_as `TyIntQe phi
+                 | `TyFracQe -> Qe.qe_as `TyFracQe phi
      )
   |> Format.printf "@[Result of QE: %a@]@;" (Syntax.Expr.pp srk)
 
