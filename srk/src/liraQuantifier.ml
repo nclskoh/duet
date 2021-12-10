@@ -206,6 +206,8 @@ module LinearTerm (Ctx : Syntax.Context) : sig
 
    *)
 
+  (*
+
   type t
 
   val real : QQ.t -> t
@@ -230,9 +232,11 @@ module LinearTerm (Ctx : Syntax.Context) : sig
 
   val to_term : t -> Ctx.arith_term
 
-  val simplify: Ctx.arith_term -> Ctx.arith_term
-
   val pp : Format.formatter -> t -> unit
+
+  *)
+
+  val simplify: Ctx.arith_term -> Ctx.arith_term
 
 end = struct
 
@@ -250,11 +254,13 @@ end = struct
 
   let srk = Ctx.context
 
+  (*
   (** Keys are simplified terms without coefficients, and values are non-zero coefficients.
       A non-zero rational number r is represented with key "1" and value r;
       0 is itself represented by the empty table.
    *)
   type t = QQ.t H.t
+   *)
 
   let table () = H.create 11
   let insert = H.replace
@@ -1070,6 +1076,8 @@ module LiraQe (Ctx : Syntax.Context) = struct
 
   let srk = Ctx.context
   module Elim = Eliminate(Ctx)
+
+  let reduce = Elim.reduce
 
   let qe_as (sort: [`TyIntQe | `TyFracQe]) (phi: Ctx.t Syntax.formula) =
     let (prefix, qf) = Quantifier.normalize srk phi in
