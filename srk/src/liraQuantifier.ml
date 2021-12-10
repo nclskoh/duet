@@ -595,6 +595,10 @@ end = struct
          let n = match QQ.to_int t.coeff with
            | None -> failwith "NormalTerm: coefficient of distinguished symbol not integer"
            | Some n -> n in
+         (* This is a little subtle, but [n] itself should be included even when n is positive,
+            because n u + s can exceed n after adding s, and flooring gives n + floor(s)
+            and not (n - 1) + floor(s).
+          *)
          List.map QQ.of_int (range_towards_zero n)
        in
        let sum term n =
