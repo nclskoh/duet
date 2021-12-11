@@ -1,15 +1,6 @@
 (**
 
-   L = (0, 1, +, -/1, floor, =, <, <=, = mod k)
-
-   E.g.:-
-
-   forall x1 x2. exists x3.
-     (x1 = floor(x1)
-     /\ x2 = floor(x2)
-     /\ (3 + 1) * x1 < floor(2 * x3)
-     /\ floor(x3) + floor(x3) < 2 * x2
-     /\ x3 = 1 mod 2)
+   L = (0, 1, +, -/1, floor/to_int, =, <, <=, = mod k)
 
    Algorithm:
 
@@ -17,32 +8,46 @@
 
     2. \exists xi/u. \psi --->
 
-       a. Make terms into PA and LRA terms, which are of the form
+       a. Make terms into PA and LRA terms that are of the form
           [n * xi + s] or [n * u + s], where [s] is free of [xi] or [u].
 
-          - 0, 1, variable ---> unchanged
-          - c * x, x * c ---> simplify constants
-          - T + T ---> recurse, group 'like' parts, simplify constants
-          - floor(T) --->
-            - Recurse on T to get [T = n * xi + s] or [T = nu + s].
-            - Check sort of xi/u
-            - If xi, distribute floor to get [nu + floor(s)].
-            - If u, [s <= nu + s < n + s] or [n + s < nu + s <= s], so
-              [floor(nu + s) = floor(s), 1 + floor(s), ..., n + floor(s)], or
-              [floor(nu + s) = n + floor(s), (n + 1) + floor(s), ..., floor(s)].
+          Call such a term a "normal term".
+          For a term t, let T_{xi}(t) be the set of normal terms such that
+          R, t = floor(t) \models \bigvee_{n xi + s in T_{xi}(t)} (t = n xi + s).
+          Similarly, let T_u(t) be the set of normal terms such that
+          R, 0 <= u < 1 \models \bigvee_{n u + s in T} (t = nu + s).
 
-              For substitution QE: replace [floor(nu + s)] in the formula here
-              with [k + floor(s)] and restart (a).
+          T_{xi}, T_u are defined recursively as follows.
 
-              For implementation: generalize "term-purification" algorithm to
-              return a set of terms, and these possibilities are returned.
+          - 0, 1, variable: T(-) = {-}, i.e., unchanged/singleton.
+          - c * x, x * c for c an expression denoting an integer:
+            T(c x) = { simplify(c) t' : t' in T(x) },
+            where simplify simplifies its argument into an integer  constant.
+          - T(t1 + t2) = { simplify(t1' + t2') : t1' in T(t1), t2' in T(t2) },
+            where simplify regroups terms and simplifies coefficients.
+          - T(-t) = { simplify(-t') : t' in T(t) }.
+
+          - T_{xi}(floor(t)) = { n xi + floor(s) : n xi + s in T(t) }
+
+            T_u(floor(t)) = 
+            \bigcup_{nu + s in T_u(t)} { i + floor(s) : i in {0, 1, ..., n} }
+            if n >= 0.
+
+            T_u(floor(t)) = 
+            \bigcup_{nu + s in T_u(t)} { i + floor(s) : i in {n, n-1, ..., 0} }
+
+            T_u(floor(t)) = 
+            \bigcup_{0u + s in T_u(t)} { floor(s) }.
 
           Result: all terms are of the form [n * xi + floor(s)] or
           [n * u + floor(s)].
 
-       b. Make atomic formulas into PA and LRA formulas:
+       b. Reduce atomic formulas into PA and LRA formulas, specifically
+          LIRA in Z3 (https://smtlib.cs.uiowa.edu/theories-Reals_Ints.shtml,
+          AUFLIRA).
 
-          i. Normalize all atoms to be of the form [n xi R s], [nu R s],
+          i. Using T_{xi} or T_u, depending on what is to be eliminated,
+             normalize each atom to be of the form [n xi R s], [nu R s],
              or [s R t] with s, t free of xi/u.
 
           ii. Rewrite atomic formulas containing xi/u.
@@ -55,31 +60,21 @@
           - n u <= s ---> unchanged
           - n xi = s mod k ---> n xi = floor(s) mod k /\ s = floor(s)
           - n u = s mod k:
-            "Multiply" by -1 if necessary to make n > 0.
 
             nu - s = floor(nu) + (nu)* - (floor(s) + s* ) \in kZZ \subseteq ZZ.
             Hence, (nu)* - s* \in ZZ.
             Since 0 <= (nu)*, s* < 1, -1 < (nu)* - s* < 1, so (nu)* - s* = 0,
             i.e., [(nu)* = s*].
 
-            Since n > 0, [0 <= nu < n], so floor(nu) = 0, 1, ..., n - 1.
+            Suppose n > 0 first. [0 <= nu < n], so floor(nu) = 0, 1, ..., n - 1.
             Consequently,
             [nu = floor(nu) + (nu)* = i + (nu)* = i + s*] for some i = 0, ..., n - 1,
             i.e., [nu = i + (s - floor(s))] for i = 0, ..., n - 1.
 
-            We also have [floor(nu) + (nu)* - (floor(s) + s* \in kZZ],
-            so [floor(nu) - floor(s) \in kZZ].
-            When floor(nu) = i, [floor(s) = i mod k].
+            When floor(nu) = i, i - floor(s) = floor(nu) - floor(s) \in kZZ,
+            so floor(s) \equiv i mod k.
 
-            Thus:
-
-            - Substitution QE:
-              [nu = s mod k] ---> [\/_{i=0}^{n-1} floor(s) = i mod k /\ nu = i + s - floor(s)].
-
-            - MBP: ???
-
-    3. \psi ---> \psi[xi |-> floor(x), u |-> x - floor(x)].
-
+            Call this transformation F, so the reduction result is F(\psi).
  *)
 
 (* module Ctx = SrkAst.Ctx *)
@@ -616,8 +611,10 @@ end = struct
          let result =
            match t.rest with
            | None ->
+              (* {0, 1, ..., n } + floor(0), similarly for negative n *)
               List.map (sum None) possibilities
            | Some rest ->
+              (* {0, 1, ..., n} + floor(s), similarly for negative n *)
               List.map (sum (Some (Ctx.mk_floor rest))) possibilities
          in
          Log.logf ~level:`debug "@[NormalTerm for %a: fractional floor(%a) = %a@]@;"
