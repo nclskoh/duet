@@ -3,7 +3,7 @@ open Srk
 
 (** Preamble stolen from bigtop.ml *)
 
-module Ctx = SrkAst.Ctx
+module Ctx = Syntax.MakeContext()
 let srk = Ctx.context
 
 module Qe = LiraQuantifier.LiraQe(Ctx)
@@ -28,6 +28,7 @@ let do_qe sort file =
                  | `TyFracQe -> Qe.qe_as `TyFracQe phi
      )
   |> Format.printf "@[Result of QE: %a@]@;" (Syntax.Expr.pp srk)
+
 
 let sort_of_string s =
   if String.equal s "std" then `Std
