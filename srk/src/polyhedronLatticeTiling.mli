@@ -64,7 +64,10 @@ val disjunctive_normal_form:
 
 val convex_hull_of_lira_model:
   [ `SubspaceCone
-  | `SubspaceConeAccelerated of int
+  | `SubspaceConeAccelerated of
+      [ `DiversifyInOriginal of int
+      | `DiversifyInDD
+      | `DiversifyInBoth of int]
   | `SclwAccelerated of int
   | `IntFrac
   | `IntFracAccelerated of int
@@ -80,7 +83,11 @@ val convex_hull_of_lira_model:
   DD.closed DD.t
 
 val abstract: [ `SubspaceCone
-              | `SubspaceConeAccelerated of int
+              | `SubspaceConeAccelerated of
+                  [ `DiversifyInOriginal of int
+                  | `DiversifyInDD
+                  | `DiversifyInBoth of int
+                  ]
               | `SubspaceConePrecondAccelerate of int
               | `SclwAccelerated of int
               | `Subspace
@@ -100,7 +107,11 @@ val abstract: [ `SubspaceCone
 
 val convex_hull:
   [ `SubspaceCone
-  | `SubspaceConeAccelerated of int
+  | `SubspaceConeAccelerated of
+      [ `DiversifyInOriginal of int
+      | `DiversifyInDD
+      | `DiversifyInBoth of int
+      ]
   | `SubspaceConePrecondAccelerate of int
   | `SclwAccelerated of int
   | `Subspace

@@ -82,7 +82,11 @@ module ConvHull : sig
     'a context ->
     ?filter:(Quantifier.quantifier_prefix -> Syntax.Symbol.Set.t -> Syntax.Symbol.Set.t) ->
     [ `SubspaceCone
-    | `SubspaceConeAccelerated
+    | `SubspaceConeAccelerated of
+        [ `DiversifyInOriginal
+        | `DiversifyInDD
+        | `DiversifyInBoth
+        ]
     | `SubspaceConePrecondAccelerate
     | `SclwAccelerated
     | `Subspace
@@ -109,7 +113,11 @@ module ConvHull : sig
     'a context ->
     (DD.closed DD.t -> DD.closed DD.t -> bool) ->
     [ `SubspaceCone
-    | `SubspaceConeAccelerated
+    | `SubspaceConeAccelerated of
+        [ `DiversifyInOriginal
+        | `DiversifyInDD
+        | `DiversifyInBoth
+        ]
     | `SubspaceConePrecondAccelerate
     | `SclwAccelerated
     | `Subspace
@@ -128,7 +136,11 @@ module ConvHull : sig
     | `NormalizThenElim
     ] ->
     [ `SubspaceCone
-    | `SubspaceConeAccelerated
+    | `SubspaceConeAccelerated of
+        [ `DiversifyInOriginal
+        | `DiversifyInDD
+        | `DiversifyInBoth
+        ]
     | `SubspaceConePrecondAccelerate
     | `SclwAccelerated
     | `Subspace
@@ -191,8 +203,16 @@ end = struct
 
   let pp_alg fmt = function
     | `SubspaceCone -> Format.fprintf fmt "SubspaceCone"
-    | `SubspaceConeAccelerated ->
-       Format.fprintf fmt "SubspaceConeAccelerated(window=%d)" !acceleration_window
+    | `SubspaceConeAccelerated `DiversifyInOriginal ->
+       Format.fprintf fmt
+         "SubspaceConeAccelerated (using previous %d models in the PLT as a hint)"
+         !acceleration_window
+    | `SubspaceConeAccelerated `DiversifyInDD ->
+       Format.fprintf fmt
+         "SubspaceConeAccelerated (using vertices of LW-Cooper projection as a hint)"
+    | `SubspaceConeAccelerated `DiversifyInBoth ->
+       Format.fprintf fmt
+         "SubspaceConeAccelerated (using previous %d models and the vertices of LW-Cooper projection as a hint)" !acceleration_window
     | `SubspaceConePrecondAccelerate -> Format.fprintf fmt "SubspaceConePrecondAccelerated"
     | `SclwAccelerated ->
        Format.fprintf fmt "(SubspaceCone + LW + Mixed Cooper)-accelerated(window=%d)"
@@ -228,9 +248,15 @@ end = struct
        Format.fprintf fmt "SubspaceConeAccelerated (running on pure integer tasks only)"
 
   let standard_option = function
-    | `RunOnlyForPureInt -> `SubspaceConeAccelerated !acceleration_window
+    | `RunOnlyForPureInt ->
+       `SubspaceConeAccelerated (`DiversifyInOriginal !acceleration_window)
     | `SubspaceCone -> `SubspaceCone
-    | `SubspaceConeAccelerated -> `SubspaceConeAccelerated !acceleration_window
+    | `SubspaceConeAccelerated `DiversifyInOriginal ->
+       `SubspaceConeAccelerated (`DiversifyInOriginal !acceleration_window)
+    | `SubspaceConeAccelerated `DiversifyInDD ->
+       `SubspaceConeAccelerated `DiversifyInDD
+    | `SubspaceConeAccelerated `DiversifyInBoth ->
+       `SubspaceConeAccelerated (`DiversifyInBoth !acceleration_window)
     | `SubspaceConePrecondAccelerate -> `SubspaceConePrecondAccelerate !acceleration_window
     | `SclwAccelerated -> `SclwAccelerated !acceleration_window
     | `Subspace -> `Subspace
@@ -417,9 +443,9 @@ end = struct
     in
     convex_hull_ srk
       (match how with
-       | `RunOnlyForPureInt -> `SubspaceConeAccelerated
+       | `RunOnlyForPureInt -> `SubspaceConeAccelerated `DiversifyInOriginal
        | `SubspaceCone -> `SubspaceCone
-       | `SubspaceConeAccelerated -> `SubspaceConeAccelerated
+       | `SubspaceConeAccelerated how -> `SubspaceConeAccelerated how
        | `SubspaceConePrecondAccelerate -> `SubspaceConePrecondAccelerate
        | `SclwAccelerated -> `SclwAccelerated
        | `Subspace -> `Subspace
@@ -583,12 +609,40 @@ let spec_list = [
   ("-lira-convex-hull-sc-accelerated"
   , Arg.String
       (fun file ->
-          ignore (ConvHull.convex_hull srk `SubspaceConeAccelerated (load_formula file));
-          Format.printf "Result: success"
+        ignore (ConvHull.convex_hull srk
+                  (`SubspaceConeAccelerated `DiversifyInOriginal)
+                  (load_formula file));
+        Format.printf "Result: success"
       )
   ,
     "Compute the convex hull of an existential formula in linear integer-real arithmetic
-     using the subspace-and-cone abstraction"
+     using the subspace-and-cone abstraction accelerated by using the previous model
+     as a hint."
+  );
+
+  ("-lira-convex-hull-sc-diversify-in-dd"
+  , Arg.String
+      (fun file ->
+        ignore (ConvHull.convex_hull srk
+                  (`SubspaceConeAccelerated `DiversifyInDD)
+                  (load_formula file));
+        Format.printf "Result: success"
+      )
+  , "Compute the convex hull of an existential formula in linear integer-real arithmetic
+     using vertices of the LW-Cooper projection as a hint."
+  );
+
+  ("-lira-convex-hull-sc-diversify-in-both"
+  , Arg.String
+      (fun file ->
+        ignore (ConvHull.convex_hull srk
+                  (`SubspaceConeAccelerated `DiversifyInBoth)
+                  (load_formula file));
+        Format.printf "Result: success"
+      )
+  , "Compute the convex hull of an existential formula in linear integer-real arithmetic
+     using the subspace-and-cone abstraction accelerated by using the previous model
+     and vertices of the LW-Cooper projection as a hint."
   );
 
   ("-lira-convex-hull-sc-precond-accelerate"
@@ -698,7 +752,8 @@ let spec_list = [
   , Arg.String (fun file ->
         ConvHull.compare srk (* ConvHull.dd_subset *)
           DD.equal
-          `SubspaceConeAccelerated `Lw
+          (`SubspaceConeAccelerated `DiversifyInOriginal)
+          `Lw
           (load_formula file))
   , "Test subspace-cone convex hull of an existential formula in LIRA against
      the convex hull computed by Loos-Weispfenning.
@@ -732,7 +787,9 @@ let spec_list = [
 
   ("-compare-convex-hull-sc-accelerated"
   , Arg.String (fun file ->
-        ConvHull.compare srk DD.equal `SubspaceCone `SubspaceConeAccelerated (load_formula file))
+        ConvHull.compare srk DD.equal `SubspaceCone
+          (`SubspaceConeAccelerated `DiversifyInOriginal)
+          (load_formula file))
   , "Test the convex hull of an existential formula in LIRA computed by
      the subspace-cone abstraction against the accelerated version."
   );
@@ -755,7 +812,8 @@ let spec_list = [
   ("-compare-convex-hull-sc-accelerated-vs-intfrac-accelerated"
   , Arg.String (fun file ->
         ConvHull.compare srk DD.equal
-          `SubspaceConeAccelerated `IntFracAccelerated (load_formula file))
+          (`SubspaceConeAccelerated `DiversifyInOriginal)
+          `IntFracAccelerated (load_formula file))
   , "Test the convex hull of an existential formula in LIRA computed by
      the subspace-cone abstraction against the one computed by projection in
      integer-fractional space."
@@ -763,7 +821,9 @@ let spec_list = [
 
   ("-compare-convex-hull-sc-accelerated-vs-intfrac"
   , Arg.String (fun file ->
-        ConvHull.compare srk DD.equal `SubspaceConeAccelerated `IntFrac (load_formula file))
+        ConvHull.compare srk DD.equal
+          (`SubspaceConeAccelerated `DiversifyInOriginal)
+          `IntFrac (load_formula file))
   , "Test the convex hull of an existential formula in LIRA computed by
      the subspace-cone abstraction against the one computed by projection in
      integer-fractional space."
@@ -772,7 +832,7 @@ let spec_list = [
   ("-compare-convex-hull-sc-accelerated-vs-lwcooper"
   , Arg.String (fun file ->
         ConvHull.compare srk DD.equal
-          `SubspaceConeAccelerated
+          (`SubspaceConeAccelerated `DiversifyInOriginal)
           (`LwCooper `NoIntHullAfterProjection)
           (load_formula file))
   , "Test the convex hull of an existential formula in LIRA computed by
@@ -784,7 +844,7 @@ let spec_list = [
   ("-compare-convex-hull-sc-accelerated-vs-lwcooper-inthull"
   , Arg.String (fun file ->
         ConvHull.compare srk DD.equal
-          `SubspaceConeAccelerated
+          (`SubspaceConeAccelerated `DiversifyInOriginal)
           (`LwCooper `IntHullAfterProjection) (load_formula file))
   , ""
   );
@@ -792,7 +852,7 @@ let spec_list = [
   ("-compare-convex-hull-sc-accelerated-vs-lwcooper-mixedhull"
   , Arg.String (fun file ->
         ConvHull.compare srk DD.equal
-          `SubspaceConeAccelerated
+          (`SubspaceConeAccelerated `DiversifyInOriginal)
           (`LwCooper `IntRealHullAfterProjection)
           (load_formula file))
   , ""
@@ -809,7 +869,9 @@ let spec_list = [
 
   ("-compare-convex-hull-sc-accelerated-vs-subspace"
   , Arg.String (fun file ->
-        ConvHull.compare srk DD.equal `SubspaceConeAccelerated `Subspace (load_formula file))
+        ConvHull.compare srk DD.equal
+          (`SubspaceConeAccelerated `DiversifyInOriginal)
+          `Subspace (load_formula file))
   , ""
   );
 
@@ -885,7 +947,9 @@ let spec_list = [
   ("-compare-convex-hull-sc-accelerated-vs-gc"
   , Arg.String
       (fun file ->
-        ConvHull.compare srk DD.equal `SubspaceConeAccelerated `GcThenElim
+        ConvHull.compare srk DD.equal
+          (`SubspaceConeAccelerated `DiversifyInOriginal)
+          `GcThenElim
           (load_formula file)
       )
   ,
@@ -907,7 +971,9 @@ let spec_list = [
   ("-compare-convex-hull-sc-accelerated-vs-relax-real-lw"
   , Arg.String
       (fun file ->
-        ConvHull.compare srk DD.equal `SubspaceConeAccelerated `RelaxToRealLw
+        ConvHull.compare srk DD.equal
+          (`SubspaceConeAccelerated `DiversifyInOriginal)
+          `RelaxToRealLw
           (load_formula file)
       )
   , "Compute the convex hull computed by subspace-cone abstraction vs the real relaxation
@@ -929,7 +995,9 @@ let spec_list = [
   ("-compare-convex-hull-sc-accelerated-vs-normaliz"
   , Arg.String
       (fun file ->
-        ConvHull.compare srk DD.equal `SubspaceConeAccelerated `NormalizThenElim
+        ConvHull.compare srk DD.equal
+          (`SubspaceConeAccelerated `DiversifyInOriginal)
+          `NormalizThenElim
           (load_formula file)
       )
   ,

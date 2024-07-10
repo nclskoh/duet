@@ -152,7 +152,8 @@ let abstract solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None) terms =
     end;
 
   match !enable_lira with
-  | true -> Plt.abstract `SubspaceConeAccelerated solver
+  | true -> Plt.abstract
+              (`SubspaceConeAccelerated (`DiversifyInOriginal 1)) solver
               ~man ~bottom terms
   | false ->
      let join = DD.join in
