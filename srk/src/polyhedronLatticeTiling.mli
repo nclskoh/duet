@@ -64,9 +64,10 @@ val disjunctive_normal_form:
 
 val convex_hull_of_lira_model:
   [ `SubspaceCone
-  | `SubspaceConeAccelerated
+  | `SubspaceConeAccelerated of int
+  | `SclwAccelerated of int
   | `IntFrac
-  | `IntFracAccelerated
+  | `IntFracAccelerated of int
   | `LwCooper of
       [ `IntRealHullAfterProjection
       | `IntHullAfterProjection
@@ -79,11 +80,12 @@ val convex_hull_of_lira_model:
   DD.closed DD.t
 
 val abstract: [ `SubspaceCone
-              | `SubspaceConeAccelerated
-              | `SubspaceConePrecondAccelerate
+              | `SubspaceConeAccelerated of int
+              | `SubspaceConePrecondAccelerate of int
+              | `SclwAccelerated of int
               | `Subspace
               | `IntFrac
-              | `IntFracAccelerated
+              | `IntFracAccelerated of int
               | `LwCooper of
                   [ `IntRealHullAfterProjection
                   | `IntHullAfterProjection
@@ -98,11 +100,12 @@ val abstract: [ `SubspaceCone
 
 val convex_hull:
   [ `SubspaceCone
-  | `SubspaceConeAccelerated
-  | `SubspaceConePrecondAccelerate
+  | `SubspaceConeAccelerated of int
+  | `SubspaceConePrecondAccelerate of int
+  | `SclwAccelerated of int
   | `Subspace
   | `IntFrac
-  | `IntFracAccelerated
+  | `IntFracAccelerated of int
   | `LwCooper of
       [ `IntRealHullAfterProjection
       | `IntHullAfterProjection
@@ -127,17 +130,27 @@ val full_integer_hull_then_project:
   'a Syntax.context -> 'a Syntax.formula ->
   DD.closed DD.t
 
-(** Sound only when all variables in the formula are of integer type,
-    and there are no integrality constraints.
-    Integrality constraints apart from integrality of variables are
-    completely ignored.
+(** Computes convex hull of a LIA formula that has all its symbols
+    of integer type. Integrality constraints apart from integrality
+    of variables MUST be absent for this convex hull to be exact,
+    so an LIA formula should be transformed into an equivalent one
+    with more variables via [PolyhedralFormula] first.
 *)
-val full_integer_hull_then_project_onto_terms:
+val hull_by_integer_hull_of_implicant_then_project:
   ?man:(DD.closed Apron.Manager.t) ->
   [`GomoryChvatal | `Normaliz] ->
   'a Syntax.context -> 'a Syntax.formula ->
   ('a Syntax.arith_term) Array.t -> DD.closed DD.t
 
+(** This computes the convex hull of an LRA formula by projecting
+    each implicant and taking the convex hull.
+    This convex hull is exact when all variables are real and no
+    integrality constraints are present.
+ *)
+val hull_by_projecting_implicant:
+  ?man:(DD.closed Apron.Manager.t) ->
+  'a Syntax.context -> 'a Syntax.formula ->
+  ('a Syntax.arith_term) Array.t -> DD.closed DD.t
 
 val convex_hull_lia:
   'a Syntax.context -> 'a Syntax.formula ->
