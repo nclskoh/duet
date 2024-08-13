@@ -40,7 +40,7 @@ val of_constraints : (constraint_kind * V.t) BatEnum.t -> t
 val max_constrained_dim : t -> Linear.QQVector.dim
 
 (** Inverse of [of_formula] *)
-val to_formula : 'a CoordinateSystem.t -> t -> 'a formula
+val to_formula : 'a context -> (int -> 'a arith_term) -> t -> 'a formula
 
 val to_apron : 'a CoordinateSystem.t -> 'a SrkApron.Env.t -> 'abs Apron.Manager.t -> t -> ('a,'abs) SrkApron.property
 
@@ -50,14 +50,18 @@ val mem : (int -> QQ.t) -> t -> bool
 
 val implies : t -> (constraint_kind * V.t) -> bool
 
+val formula_of_constraint : 'a context ->
+                            (int -> 'a arith_term) ->
+                            (constraint_kind * V.t) ->
+                            'a formula
+
 (** Convert a conjunction of atomic formulas (as returned by
     [Interpretation.select_implicant]) to a polyhedron. *)
 val of_implicant : ?admit:bool -> 'a CoordinateSystem.t -> ('a formula) list -> t
 
 (** Convert a polyhedron to a conjunction of atomic formulas (as returned by
     [Interpretation.select_implicant]). *)
-val implicant_of : 'a CoordinateSystem.t -> t -> ('a formula) list
-
+val implicant_of : 'a context -> (int -> 'a arith_term) -> t -> ('a formula) list
 
 (** Convert a conjunction of atomic formulas (as returned by
     [Interpretation.select_implicant]) to a polyhedron. *)

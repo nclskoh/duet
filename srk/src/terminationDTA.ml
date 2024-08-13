@@ -6,6 +6,7 @@ open Sequence
 module Vec = Linear.QQVector
 module Mat = Linear.QQMatrix
 module TF = TransitionFormula
+module IS = Iteration.Solver
 
 include Log.Make(struct let name = "TerminationDTA" end)
 
@@ -242,14 +243,15 @@ let closed_form sim_symbols linterm ep_mat =
        (ExpPolynomial.scalar (Vec.coeff Linear.const_dim linterm))
        Linear.const_dim
 
-let mp srk tf =
-  let tf = TF.linearize srk tf in
-  match Smt.is_sat srk (TF.formula tf) with
-  | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
+let mp solver =
+  let srk = IS.get_context solver in
+  match IS.check solver with
+  | `Unknown -> failwith "SMT solver should not return unknown for LRA formulas"
   | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
   | `Sat ->
+    let tf = IS.get_transition_formula solver in
      let qdlts_abs =
-       DLTSPeriodicRational.abstract_rational srk tf
+       DLTSPeriodicRational.abstract_rational solver
        |> DLTS.simplify srk ~scale:true
      in
      let module PLM = Lts.PartialLinearMap in
@@ -286,10 +288,12 @@ let mp srk tf =
      (* exists x,x'. F(x,x') /\ GZz = Sx *)
      let guard =
        mk_and srk (TF.formula tf::sim_constraints)
+       |> Syntax.eliminate_floor_mod_div srk
        |> Quantifier.mbp srk (fun s -> Symbol.Set.mem s gz_symbols_set)
        |> SrkSimplify.simplify_dda srk
        |> SrkSimplify.eliminate_floor srk
      in
+     logf "DTA guard: %a" (Formula.pp srk) guard;
      let tr_z_exp = BatOption.get (ExpPolynomial.exponentiate_rational tr_z) in
      let term_of_dim i =
        if i == Linear.const_dim then mk_one srk
@@ -325,6 +329,8 @@ let mp srk tf =
        | `Ite _ -> failwith "should not see ite in the TF"
      in
      let xseq = Formula.eval srk algebra guard in
-     mk_and srk (sim_constraints@(Periodic.period xseq))
+     let f = mk_and srk (sim_constraints@(Periodic.period xseq)) in
+     logf "DTA mp: %a" (Formula.pp srk) f;
+     f
      |> Quantifier.mbp srk (fun s -> not (Symbol.Set.mem s gz_symbols_set))
      |> mk_not srk
