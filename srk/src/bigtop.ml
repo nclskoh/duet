@@ -70,6 +70,77 @@ let print_result = function
   | `Unsat -> Format.printf "unsat@\n"
   | `Unknown -> Format.printf "unknown@\n"
 
+let retype_formula srk typ phi =
+  let (qf, phi) = Quantifier.normalize srk phi in
+  let requantify quantifiers phi =
+    List.fold_left
+      (fun phi sym ->
+        mk_exists_const srk sym phi)
+      phi
+      (List.rev quantifiers)
+  in
+  if List.exists (fun (q, _) -> q = `Forall) qf then
+    failwith "universal quantification not supported"
+  else
+    let cast_formula srk typ phi =
+      let map =
+        Symbol.Set.fold
+          (fun sym map ->
+            match typ_symbol srk sym with
+            | `TyInt ->
+               begin match typ with
+               | `TyReal ->
+                  let new_sym =
+                    mk_symbol srk ~name:(Format.asprintf "%s_realified"
+                                           (show_symbol srk sym))
+                      `TyReal
+                  in
+                  Symbol.Map.add sym new_sym map
+               | `TyInt ->
+                  map
+               end
+            | `TyReal ->
+               begin match typ with
+               | `TyInt ->
+                  let new_sym =
+                    mk_symbol srk ~name:(Format.asprintf "%s_integralized"
+                                           (show_symbol srk sym))
+                      `TyInt
+                  in
+                  Symbol.Map.add sym new_sym map
+               | `TyReal -> map
+               end
+            | _ -> map
+          )
+          (symbols phi)
+          Symbol.Map.empty
+      in
+      let lookup s = try Symbol.Map.find s map with | Not_found -> s in
+      ( Syntax.substitute_const srk
+          (fun s -> Syntax.mk_const srk (lookup s)) phi
+      , map
+      )
+    in
+    let purified = Syntax.eliminate_floor_mod_div_int srk phi in
+    let introduced_symbols = Symbol.Set.diff (symbols purified) (symbols phi) in
+    let (retyped_purified, map) = cast_formula srk typ purified in
+    let equivalent = (Symbol.Map.is_empty map) in
+    let remap_symbols s =
+      match Symbol.Map.find_opt s map with
+      | Some new_sym -> new_sym
+      | None -> s
+    in
+    let new_quantified_symbols =
+      let retyped_original = List.map (fun (_, sym) -> remap_symbols sym) qf in
+      let retyped_introduced = Symbol.Set.map remap_symbols introduced_symbols
+                               |> Symbol.Set.to_list
+      in
+      retyped_original @ retyped_introduced
+    in
+    ( requantify new_quantified_symbols retyped_purified
+    , equivalent
+    , remap_symbols )
+
 module ConvHull : sig
 
   val ignore_quantifiers_in_convhull: unit -> unit
@@ -88,9 +159,6 @@ module ConvHull : sig
         | `DiversifyInBoth
         ]
     | `SubspaceConePrecondAccelerate
-    | `SclwAccelerated
-    | `Subspace
-    | `Subspace
     | `IntFrac
     | `IntFracAccelerated
     | `LwCooper of
@@ -119,8 +187,6 @@ module ConvHull : sig
         | `DiversifyInBoth
         ]
     | `SubspaceConePrecondAccelerate
-    | `SclwAccelerated
-    | `Subspace
     | `IntFrac
     | `IntFracAccelerated
     | `LwCooper of
@@ -142,8 +208,6 @@ module ConvHull : sig
         | `DiversifyInBoth
         ]
     | `SubspaceConePrecondAccelerate
-    | `SclwAccelerated
-    | `Subspace
     | `IntFrac
     | `IntFracAccelerated
     | `LwCooper of
@@ -159,10 +223,6 @@ module ConvHull : sig
     | `NormalizThenElim
     ] ->
     'a formula -> unit
-
-  val retype_formula:
-    'a context ->
-    [ `TyInt | `TyReal ] -> 'a formula -> 'a formula * bool * (symbol -> symbol)
 
 end = struct
 
@@ -214,10 +274,6 @@ end = struct
        Format.fprintf fmt
          "SubspaceConeAccelerated (using previous %d models and the vertices of LW-Cooper projection as a hint)" !acceleration_window
     | `SubspaceConePrecondAccelerate -> Format.fprintf fmt "SubspaceConePrecondAccelerated"
-    | `SclwAccelerated ->
-       Format.fprintf fmt "(SubspaceCone + LW + Mixed Cooper)-accelerated(window=%d)"
-         !acceleration_window
-    | `Subspace -> Format.fprintf fmt "Subspace"
     | `IntFrac -> Format.fprintf fmt "IntFrac"
     | `IntFracAccelerated ->
        Format.fprintf fmt "IntFracAccelerated(window=%d)" !acceleration_window
@@ -258,8 +314,6 @@ end = struct
     | `SubspaceConeAccelerated `DiversifyInBoth ->
        `SubspaceConeAccelerated (`DiversifyInBoth !acceleration_window)
     | `SubspaceConePrecondAccelerate -> `SubspaceConePrecondAccelerate !acceleration_window
-    | `SclwAccelerated -> `SclwAccelerated !acceleration_window
-    | `Subspace -> `Subspace
     | `IntFrac -> `IntFrac
     | `IntFracAccelerated -> `IntFracAccelerated !acceleration_window
     | `LwCooper `IntRealHullAfterProjection ->
@@ -280,52 +334,6 @@ end = struct
     | `GcImplicantThenProjectTerms -> `GomoryChvatal
     | `NormalizThenElim -> `Normaliz
     | _ -> invalid_arg "Not hull-then-project"
-
-  let requantify srk quantifiers phi =
-    List.fold_left
-      (fun phi sym ->
-        mk_exists_const srk sym phi)
-      phi
-      (List.rev quantifiers)
-
-  let retype_formula srk typ phi =
-    let (qf, phi) = Quantifier.normalize srk phi in
-    if List.exists (fun (q, _) -> q = `Forall) qf then
-      failwith "universal quantification not supported"
-    else
-      let module PLT = PolyhedronLatticeTiling.PolyhedralFormula in
-      let (psi, map) = PLT.retype_as srk typ phi in
-      let equivalent = (Symbol.Map.is_empty map) in
-      let new_symbols =
-        let symbols_in_retyped_phi =
-          Symbol.Set.fold
-            (fun sym set ->
-              match Symbol.Map.find_opt sym map with
-              | None -> Symbol.Set.add sym set
-              | Some casted -> Symbol.Set.add casted set
-            )
-            (symbols phi)
-            Symbol.Set.empty
-        in
-        Symbol.Set.diff (symbols psi) symbols_in_retyped_phi
-      in
-      let new_quantified_symbols =
-        List.map
-          (fun (_, sym) -> match Symbol.Map.find_opt sym map with
-                           | Some new_sym -> new_sym
-                           | None -> sym)
-          qf
-      in
-      let remap_symbols s =
-        match Symbol.Map.find_opt s map with
-        | Some new_sym -> new_sym
-        | None -> s
-      in
-      ( requantify srk
-          (new_quantified_symbols @ Symbol.Set.to_list new_symbols)
-          psi
-      , equivalent
-      , remap_symbols )
 
   let convex_hull_ srk how
         ?(filter=elim_quantifiers)
@@ -447,8 +455,6 @@ end = struct
        | `SubspaceCone -> `SubspaceCone
        | `SubspaceConeAccelerated how -> `SubspaceConeAccelerated how
        | `SubspaceConePrecondAccelerate -> `SubspaceConePrecondAccelerate
-       | `SclwAccelerated -> `SclwAccelerated
-       | `Subspace -> `Subspace
        | `IntFrac -> `IntFrac
        | `IntFracAccelerated -> `IntFracAccelerated
        | `LwCooper `IntRealHullAfterProjection ->
@@ -656,17 +662,6 @@ let spec_list = [
      using the subspace-and-cone abstraction"
   );
 
-  ("-lira-convex-hull-sclw-accelerated"
-  , Arg.String
-      (fun file ->
-          ignore (ConvHull.convex_hull srk `SclwAccelerated (load_formula file));
-          Format.printf "Result: success"
-      )
-  ,
-    "Compute the convex hull of an existential formula in linear integer-real arithmetic
-     using the subspace-and-cone + LW Cooper abstraction"
-  );
-
   ("-lira-convex-hull-intfrac"
   , Arg.String
       (fun file ->
@@ -867,14 +862,6 @@ let spec_list = [
   , ""
   );
 
-  ("-compare-convex-hull-sc-accelerated-vs-subspace"
-  , Arg.String (fun file ->
-        ConvHull.compare srk DD.equal
-          (`SubspaceConeAccelerated `DiversifyInOriginal)
-          `Subspace (load_formula file))
-  , ""
-  );
-
   ("-lira-convex-hull-run-only-for-pure-int"
   , Arg.String
       (fun file ->
@@ -1022,7 +1009,7 @@ let spec_list = [
         in
         let phi = load_smtlib2 file in
         let (phi', equivalent, _) =
-          try ConvHull.retype_formula srk `TyInt phi
+          try retype_formula srk `TyInt phi
           with
           | _ -> Format.printf "Fail at file: %s" file;
                  failwith "Failed"
@@ -1044,7 +1031,7 @@ let spec_list = [
         in
         let phi = load_smtlib2 file in
         let (phi', equivalent, _) =
-          try ConvHull.retype_formula srk `TyReal phi
+          try retype_formula srk `TyReal phi
           with
           | _ -> Format.printf "Fail at file: %s" file;
                  failwith "Failed"

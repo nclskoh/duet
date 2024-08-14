@@ -68,7 +68,6 @@ val convex_hull_of_lira_model:
       [ `DiversifyInOriginal of int
       | `DiversifyInDD
       | `DiversifyInBoth of int]
-  | `SclwAccelerated of int
   | `IntFrac
   | `IntFracAccelerated of int
   | `LwCooper of
@@ -89,8 +88,6 @@ val abstract: [ `SubspaceCone
                   | `DiversifyInBoth of int
                   ]
               | `SubspaceConePrecondAccelerate of int
-              | `SclwAccelerated of int
-              | `Subspace
               | `IntFrac
               | `IntFracAccelerated of int
               | `LwCooper of
@@ -113,8 +110,6 @@ val convex_hull:
       | `DiversifyInBoth of int
       ]
   | `SubspaceConePrecondAccelerate of int
-  | `SclwAccelerated of int
-  | `Subspace
   | `IntFrac
   | `IntFracAccelerated of int
   | `LwCooper of
@@ -172,24 +167,14 @@ val convex_hull_lra:
   ('a Syntax.arith_term) Array.t -> DD.closed DD.t
 
 module PolyhedralFormula: sig
-
   (** Let Sigma = (=, <, <=, Int, +, -, *, /, floor, mod, QQ). *)
-
-  (** For [phi] a quantifier-free formula in [Sigma],
-      [polyhedral_formula_of_qf srk phi = (psi, new_symbols)] is such that
-      [psi] is equivalent to [phi] modulo the standard theory of reals, whose symbols
-      is among the symbols of [phi] and [new_symbols], and [psi] is a polyhedral
-      formula, i.e., one with no Int constraints.
-   *)
-  val polyhedral_formula_of_qf: 'a Syntax.context -> 'a Syntax.Formula.t ->
-                                'a Syntax.Formula.t * Syntax.Symbol.Set.t
 
   (** For [phi] a quantifier-free formula in [Sigma],
       [retype_as srk forced_typ phi = (psi, remap)] is such that
       [psi] is a polyhedral formula,
       all symbols in [psi] are of type [forced_typ], and [remap] maps
       symbols in [phi] that have a different type from [forced_typ] to
-      new symbols of type [forced_typ] that replaces them to get [psi].
+      new symbols of type [forced_typ] that replace them to get [psi].
 
       If [remap] is empty, projecting [psi] onto the symbols of [phi]
       is equivalent to [phi].

@@ -1898,12 +1898,6 @@ module SubspaceCone : sig
     diversify_in_dd: bool ->
     ('layout Plt.t, int -> QQ.t, DD.closed DD.t, int -> QQ.t) LocalAbstraction.t
 
-  (* For testing only *)
-  val abstract_subspace:
-    man:DD.closed Apron.Manager.t ->
-    max_dim_in_projected: int ->
-    ('layout Plt.t, int -> QQ.t, DD.closed DD.t, int -> QQ.t) LocalAbstraction.t
-
 end = struct
 
   module LW = LoosWeispfenning
@@ -1916,6 +1910,72 @@ end = struct
            | `Zero | `Nonneg -> (kind, v)
            | `Pos -> (`Nonneg, v)
          )
+
+  let polytope_of_close_lattice_points ~man ~max_dim_in_projected m plt =
+    let underapprox_plt =
+      LocalAbstraction.apply
+        (LwCooper.abstract_lw_cooper
+           ~elim:(fun dim -> dim > max_dim_in_projected))
+        m
+        plt
+    in
+    (* Strengthen strict inequalities to strict ones *)
+    let underapprox_closed_polyhedron =
+      P.enum_constraints (Plt.poly_part underapprox_plt)
+      |> BatEnum.map (fun (kind, v) ->
+             match kind with
+             | `Zero | `Nonneg  -> (kind, v)
+             | `Pos ->
+                let m_val = Linear.evaluate_affine m v in
+                let epsilon =
+                  if QQ.lt m_val _epsilon then
+                    (* test point m does not satisfy t - epsilon >= 0 -- need to
+                     choose a smaller value for epsilon than the default. *)
+                    QQ.nudge_down ~accuracy:2 m_val
+                  else
+                    _epsilon
+                in
+                assert (QQ.lt QQ.zero epsilon);
+                (* t > 0 --> t - epsilon >= 0 *)
+                (`Nonneg, V.add_term (QQ.negate epsilon) Linear.const_dim v))
+      |> P.of_constraints
+    in
+    let m_vec =
+      let open BatPervasives in
+      BatEnum.fold
+        (fun v i -> V.add_term (m i) i v)
+        V.zero
+        (0--max_dim_in_projected)
+    in
+    let fns =
+      let covectors =
+        (L.basis (Plt.lattice_part underapprox_plt))
+        @(L.basis (Plt.tiling_part underapprox_plt))
+      in
+      (* Taking the dot-product with the lattice / tiling constraints
+                  effectively homogenizes them, since the coefficient
+                  Linear.const_dim is zero for every point in the primal space. *)
+      List.map (fun vec -> V.dot vec) covectors
+    in
+    let vertices =
+      BatEnum.filter_map (fun (k, v) ->
+          match k with
+          | `Vertex ->
+             let int_v =
+               P.close_lattice_point
+                 fns
+                 underapprox_closed_polyhedron
+                 ~rational:v
+                 ~integer:m_vec
+                 (max_dim_in_projected + 1)
+             in
+             Some (`Vertex, int_v)
+          | _ -> None)
+        (DD.enum_generators (P.dd_of
+                               (max_dim_in_projected + 1)
+                               underapprox_closed_polyhedron))
+    in
+    (DD.of_generators ~man (max_dim_in_projected + 1) vertices)
 
   let abstract_sc ~man ~max_dim_in_projected ~diversify_in_dd =
     let abstract m plt =
@@ -1948,7 +2008,7 @@ end = struct
           )
           l_constraints
       in
-      let standard_subspace_abstraction =
+      let subspace_abstraction =
         match subspace_constraints with
         | [] -> polyhedron_abstraction
         | _ ->
@@ -1959,77 +2019,12 @@ end = struct
       in
       let subspace_abstraction =
         match diversify_in_dd with
-        | false -> standard_subspace_abstraction
+        | false -> subspace_abstraction
         | true ->
-           let _underapprox_plt =
-             LocalAbstraction.apply
-               (LwCooper.abstract_lw_cooper
-                  ~elim:(fun dim -> dim > max_dim_in_projected))
-               m
-               plt
+           let clp_polytope =
+             polytope_of_close_lattice_points ~man ~max_dim_in_projected m plt
            in
-           (* Strengthen strict inequalities to strict ones *)
-           let _underapprox_closed_polyhedron =
-             P.enum_constraints (Plt.poly_part _underapprox_plt)
-             |> BatEnum.map (fun (kind, v) ->
-                    match kind with
-                    | `Zero | `Nonneg  -> (kind, v)
-                    | `Pos ->
-                       let m_val = Linear.evaluate_affine m v in
-                       let epsilon =
-                         if QQ.lt m_val _epsilon then
-                           (* test point m does not satisfy t - epsilon >= 0 -- need to
-                     choose a smaller value for epsilon than the default. *)
-                           QQ.nudge_down ~accuracy:2 m_val
-                         else
-                           _epsilon
-                       in
-                       assert (QQ.lt QQ.zero epsilon);
-                       (* t > 0 --> t - epsilon >= 0 *)
-                       (`Nonneg, V.add_term (QQ.negate epsilon) Linear.const_dim v))
-             |> P.of_constraints
-           in
-           let m_vec =
-             let open BatPervasives in
-             BatEnum.fold
-               (fun v i -> V.add_term (m i) i v)
-               V.zero
-               (0--max_dim_in_projected)
-           in
-           let subspace_abstraction =
-             let fns =
-               let covectors =
-                 (L.basis (Plt.lattice_part _underapprox_plt))
-                 @(L.basis (Plt.tiling_part _underapprox_plt))
-               in
-               (* Taking the dot-product with the lattice / tiling constraints
-             effectively homogenizes them, since the coefficient
-             Linear.const_dim is zero for every point in the primal space. *)
-               List.map (fun vec -> V.dot vec) covectors
-             in
-             let vertices =
-               BatEnum.filter_map (fun (k, v) ->
-                   match k with
-                   | `Vertex ->
-                      let int_v =
-                        P.close_lattice_point
-                          fns
-                          _underapprox_closed_polyhedron
-                          ~rational:v
-                          ~integer:m_vec
-                          (max_dim_in_projected + 1)
-                      in
-                      Some (`Vertex, int_v)
-                   | _ -> None)
-                 (DD.enum_generators (P.dd_of
-                                        (max_dim_in_projected + 1)
-                                        _underapprox_closed_polyhedron))
-             in
-             DD.join
-               standard_subspace_abstraction
-               (DD.of_generators ~man (max_dim_in_projected + 1) vertices)
-           in
-           subspace_abstraction
+           DD.join subspace_abstraction clp_polytope
       in
       logf ~level:`debug "abstract_sc: combining...";
       let recession_cone =
@@ -2047,50 +2042,6 @@ end = struct
         else m dim
       in
       (dd, restricted)
-    in
-    LocalAbstraction.{ abstract }
-
-  let abstract_subspace ~man ~max_dim_in_projected =
-    let abstract m plt =
-      let abstract_lw =
-        let abstract =
-          LW.abstract_lw ~elim:(fun dim -> dim > max_dim_in_projected)
-          |> LocalAbstraction.compose
-               (Ddify.abstract ~man ~max_dim_in_projected)
-        in
-        LocalAbstraction.apply abstract m
-      in
-      let closed_p = close_constraints (P.enum_constraints (Plt.poly_part plt))
-                     |> P.of_constraints in
-      let l_constraints = L.basis (Plt.lattice_part plt) in
-      let subspace_constraints =
-        List.map
-          (fun v ->
-            ( `Zero
-            , V.add_term
-                (QQ.negate (Linear.evaluate_affine m v))
-                Linear.const_dim
-                v
-            )
-          )
-          l_constraints
-      in
-      let polyhedron_abstraction = abstract_lw closed_p in
-      let subspace_abstraction =
-        match subspace_constraints with
-        | [] -> polyhedron_abstraction
-        | _ ->
-           BatEnum.append (BatList.enum subspace_constraints)
-             (P.enum_constraints closed_p)
-           |> P.of_constraints
-           |> abstract_lw
-      in
-      let restricted m dim =
-        if dim > max_dim_in_projected
-        then failwith "abstract_sc: Dimension has been eliminated"
-        else m dim
-      in
-      (subspace_abstraction, restricted)
     in
     LocalAbstraction.{ abstract }
 
@@ -2150,23 +2101,6 @@ module AbstractTerm: sig
   val mk_sc_abstraction_with_acceleration:
     [`DiversifyInOriginal of int | `DiversifyInDD | `DiversifyInBoth of int] ->
     man:DD.closed Apron.Manager.t ->
-    [ `ExpandModFloor | `NoExpandModFloor ] ->
-    'a context -> 'a arith_term array -> Symbol.Set.t ->
-    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> Q.t)
-      LocalAbstraction.t
-
-  val mk_sc_lwcooper_abstraction_with_acceleration:
-    man:DD.closed Apron.Manager.t ->
-    ?window:int ->
-    [ `ExpandModFloor | `NoExpandModFloor ] ->
-    'a context -> 'a arith_term array -> Symbol.Set.t ->
-    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> Q.t)
-      LocalAbstraction.t
-
-  (* To remove *)
-  val mk_subspace_abstraction_with_acceleration:
-    man:DD.closed Apron.Manager.t ->
-    ?window:int ->
     [ `ExpandModFloor | `NoExpandModFloor ] ->
     'a context -> 'a arith_term array -> Symbol.Set.t ->
     ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> Q.t)
@@ -2343,42 +2277,6 @@ end = struct
       sc_abstraction
       window
       expand_mod_floor srk terms symbols
-
-let mk_sc_lwcooper_abstraction_with_acceleration
-    ~man ?(window=1)
-    expand_mod_floor srk terms symbols =
-    let num_terms = Array.length terms in
-    let sc_abstraction =
-      SubspaceCone.abstract_sc ~man ~max_dim_in_projected:(num_terms - 1)
-        ~diversify_in_dd:false
-    in
-    let lw_cooper_abstraction =
-      LwCooper.abstract_lw_cooper ~elim:(fun dim -> dim >= num_terms)
-    in
-    let sc_lw_abstraction =
-      let abstract m plt =
-        let (sc_projection, univ_translation) =
-          LocalAbstraction.apply2 sc_abstraction m plt in
-        let lw_cooper_projection =
-          LocalAbstraction.apply lw_cooper_abstraction m plt
-          |> LocalAbstraction.apply sc_abstraction m
-        in
-        (DD.join sc_projection lw_cooper_projection, univ_translation)
-      in
-      LocalAbstraction.{abstract}
-    in
-    mk_standard_acceleration
-      sc_lw_abstraction
-      window
-      expand_mod_floor srk terms symbols
-
-  let mk_subspace_abstraction_with_acceleration ~man ?(window=1)
-        expand_mod_floor srk terms symbols =
-    let subspace_abstraction =
-      SubspaceCone.abstract_subspace ~man
-        ~max_dim_in_projected:(Array.length terms - 1)
-    in
-    mk_standard_acceleration subspace_abstraction window expand_mod_floor srk terms symbols
 
   let mk_cooper_abstraction expand_mod_floor srk terms symbols =
     let num_terms = Array.length terms in
@@ -2651,12 +2549,6 @@ let local_abstraction_of_lira_model how solver man terms =
          how
          ~man
          `ExpandModFloor srk terms (Syntax.symbols phi)
-    | `SclwAccelerated window ->
-       AbstractTerm.mk_sc_lwcooper_abstraction_with_acceleration ~man ~window
-         `ExpandModFloor srk terms (Syntax.symbols phi)
-    | `Subspace ->
-       AbstractTerm.mk_subspace_abstraction_with_acceleration ~man
-         `ExpandModFloor srk terms (Syntax.symbols phi)
     | `IntFrac ->
        AbstractTerm.mk_intfrac_abstraction ~man `ExpandModFloor srk terms
          (Syntax.symbols phi)
@@ -2695,8 +2587,6 @@ let abstract how solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None)
        `SubspaceConeAccelerated (`DiversifyInOriginal window)
     | `SubspaceCone -> `SubspaceCone
     | `SubspaceConeAccelerated diversify -> `SubspaceConeAccelerated diversify
-    | `SclwAccelerated window -> `SclwAccelerated window
-    | `Subspace -> `Subspace
     | `IntFrac -> `IntFrac
     | `IntFracAccelerated window -> `IntFracAccelerated window
     | `LwCooper finalize -> `LwCooper finalize
@@ -2719,9 +2609,6 @@ let convex_hull how ?(man=(Polka.manager_alloc_loose ())) srk phi terms =
      abstract (`SubspaceConeAccelerated diversify) solver ~man terms
   | `SubspaceConePrecondAccelerate window ->
      abstract (`SubspaceConePrecondAccelerate window) solver ~man terms
-  | `SclwAccelerated window ->
-     abstract (`SclwAccelerated window) solver ~man terms
-  | `Subspace -> abstract `Subspace solver ~man terms
   | `IntFrac -> abstract `IntFrac solver ~man terms
   | `IntFracAccelerated window ->
      abstract (`IntFracAccelerated window) solver ~man terms
@@ -2868,54 +2755,11 @@ let convex_hull_lra srk phi terms =
 
 module PolyhedralFormula : sig
 
-  val polyhedral_formula_of_qf: 'a Syntax.context -> 'a Syntax.Formula.t ->
-                                'a Syntax.Formula.t * Symbol.Set.t
-
   val retype_as:
     'a Syntax.context -> [`TyInt | `TyReal] -> 'a Syntax.Formula.t ->
     'a Syntax.Formula.t * (Syntax.symbol Syntax.Symbol.Map.t)
 
 end = struct
-
-  (** For [phi] that is quantifier-free,
-      [remove_integrality_constraints srk phi] returns [psi] that is
-      free of [is_int] and whose projection onto the symbols of [phi] is
-      equivalent to [phi], provided that projection respects
-      integrality constraints of symbols that are eliminated.
-   *)
-  let remove_integrality_constraints srk phi =
-    let open Syntax in
-    rewrite srk
-      ~down:(fun expr ->
-        match destruct srk expr with
-        | `Not phi ->
-           begin match destruct srk phi with
-           | (`Atom (`IsInt t)) ->
-              let s = mk_symbol srk ~name:"standardize_not_int" `TyInt in
-              let bound = mk_const srk s in
-              mk_and srk [ mk_lt srk bound t
-                         ; mk_leq srk t (mk_add srk [bound; mk_real srk QQ.one])
-                ]
-           | _ -> expr
-           end
-        | `Atom (`IsInt t) ->
-           let s = Syntax.mk_symbol srk ~name:"standardize_int" `TyInt
-           in
-           mk_eq srk (mk_const srk s) t
-        | _ -> expr
-      )
-      phi
-
-  let polyhedral_formula_of_qf srk phi =
-    let polyhedral_phi =
-      rewrite srk ~down:(Syntax.nnf_rewriter srk) phi
-      |> rewrite srk ~down:(Syntax.pos_rewriter srk)
-      |> remove_integrality_constraints srk
-      |> eliminate_floor_mod_div srk in
-    let new_symbols =
-      Symbol.Set.diff (symbols polyhedral_phi) (Syntax.symbols phi)
-    in
-    (polyhedral_phi, new_symbols)
 
   let cast_formula srk typ phi =
     let map =
@@ -2955,55 +2799,8 @@ end = struct
         (fun s -> Syntax.mk_const srk (lookup s)) phi
     , map )
 
-  (*
-
-  Why doesn't this typecheck?
-
-  let make_all_symbols srk typ phi =
-    let new_symbols =
-      Symbol.Set.fold
-        (fun sym map1 ->
-          match typ with
-          | `TyInt ->
-             fun s ->
-             begin match typ_symbol srk s with
-             | `TyReal ->
-             let new_sym =
-                  mk_symbol srk ~name:(Format.asprintf "%s_integralized"
-                                         (show_symbol srk s))
-                    `TyInt
-                in
-                Symbol.Map.add sym new_sym (map1 sym)
-             | _ -> (map1 sym)
-             end
-          | `TyReal ->
-             fun s ->
-             begin match typ_symbol srk s with
-             | `TyInt ->
-                let new_sym =
-                  mk_symbol srk ~name:(Format.asprintf "%s_realified"
-                                         (show_symbol srk s))
-                    `TyReal
-                in
-                Symbol.Map.add sym new_sym (map1 sym)
-             | _ -> (map1 sym)
-             end
-        )
-        (symbols phi)
-        Symbol.Map.empty
-    in
-    let lookup s =
-      try Symbol.Map.find s new_symbols
-      with
-      | Not_found -> s
-    in
-    ( Syntax.substitute_const srk
-        (fun s -> Syntax.mk_const srk (lookup s)) phi
-    , new_symbols )
-   *)
-
   let retype_as srk typ phi =
-    let (p_phi, _new_symbols) = polyhedral_formula_of_qf srk phi in
+    let p_phi = Syntax.eliminate_floor_mod_div_int srk phi in
     cast_formula srk typ p_phi
 
 end

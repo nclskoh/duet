@@ -1868,6 +1868,34 @@ let eliminate_floor_mod_div srk phi =
   in
   mk_and srk (phi' :: equivalences)
 
+let eliminate_is_int srk phi =
+  rewrite srk
+    ~down:(fun expr ->
+      match destruct srk expr with
+      | `Not phi ->
+         begin match destruct srk phi with
+         | (`Atom (`IsInt t)) ->
+            let s = mk_symbol srk ~name:"for_not_int" `TyInt in
+            let bound = mk_const srk s in
+            mk_and srk [ mk_lt srk bound t
+                       ; mk_leq srk t (mk_add srk [bound; mk_real srk QQ.one])
+              ]
+         | _ -> expr
+         end
+      | `Atom (`IsInt t) ->
+         let s = mk_symbol srk ~name:"for_is_int" `TyInt
+         in
+         mk_eq srk (mk_const srk s) t
+      | _ -> expr
+    )
+    phi
+
+let eliminate_floor_mod_div_int srk phi =
+  rewrite srk ~down:(nnf_rewriter srk) phi
+  |> rewrite srk ~down:(pos_rewriter srk)
+  |> eliminate_is_int srk
+  |> eliminate_floor_mod_div srk
+
 let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
       srk formatter assertions =
   let open Format in
