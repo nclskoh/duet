@@ -1999,7 +1999,8 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
         (SrkUtil.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
     | Var (v, _), [] ->
        (try pp_print_string formatter (Env.find env v)
-       with Not_found -> invalid_arg "pp_smtlib2: free variable")
+        with Not_found ->
+          invalid_arg (Format.asprintf "pp_smtlib2: free variable %s" (show_symbol srk v)))
     | Add, terms ->
       fprintf formatter "(+ @[";
       SrkUtil.pp_print_enum

@@ -6,6 +6,10 @@ module V = Linear.QQVector
 
 include Log.Make (struct let name = "polyhedronLatticeTiling" end)
 
+let () = my_verbosity_level := `info
+let test_convex_hull = ref false
+let test_level = ref `debug
+
 (* Some small constant *)
 let _epsilon = QQ.of_frac 1 10
 
@@ -164,6 +168,14 @@ let pp_pconstr fmt (kind, v) =
   | `Nonneg -> Format.fprintf fmt "@[%a@] >= 0" pp_vector v
   | `Pos -> Format.fprintf fmt "@[%a@] > 0" pp_vector v
 
+let pp_term_of_dim srk fmt map =
+  IntMap.iter
+    (fun dim term ->
+      Format.fprintf fmt "(%d: %a), "
+        dim
+        (Syntax.ArithTerm.pp srk) term)
+    map
+
 let log_plt_constraints ~level str (p, l, t) =
   logf ~level
     "%s: p_constraints: @[%a@]@\n" str
@@ -177,8 +189,6 @@ let log_plt_constraints ~level str (p, l, t) =
     "%s: t_constraints: @[%a@]@\n" str
     (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt "@\n")
        pp_vector) t
-
-let test_level = ref `debug
 
 let test_point_in_polyhedron str m p =
   if Log.level_leq !my_verbosity_level !test_level then
@@ -225,6 +235,38 @@ let test_point_in_lattice is_int str m l =
       )
       l
   else ()
+
+let test_implication str solver consequence =
+  if Log.level_leq !my_verbosity_level !test_level then
+    begin
+      logf str;
+      let srk = Abstract.Solver.get_context solver in
+      let phi = Abstract.Solver.get_formula solver in
+      let goal = Syntax.mk_and srk [phi; Syntax.mk_not srk consequence] in
+      let solver = SrkZ3.Solver.make srk in
+      let msg status =
+        Format.asprintf "@[%a@]@\n %s @\n@[%a@]@;"
+          (Syntax.Formula.pp srk) phi
+          status
+          (Syntax.Formula.pp srk) consequence
+      in
+      SrkZ3.Solver.add solver [goal];
+      if (SrkZ3.Solver.check solver = `Unsat) then
+        logf "Test passed: %s" (msg "implies")
+      else
+        failwith (msg "does not imply")
+    end
+  else ()
+
+let test_hull solver terms dd =
+  if Log.level_leq !my_verbosity_level !test_level && !test_convex_hull then
+    let srk = Abstract.Solver.get_context solver in
+    let consequence = formula_of_dd srk (fun dim -> terms.(dim)) dd in
+    test_implication
+      "Checking if convex hull is consistent with input formula..."
+      solver consequence
+  else
+    ()
 
 module Plt : sig
 
@@ -720,6 +762,7 @@ end = struct
          , (fun _srk ~free_dim _term_of_dim -> ignore free_dim; invalid_arg "floor term in formula")
          )
     in
+    let old_term_of_dim = !curr_term_of_dim in
     let (linearized, cond, _term) =
       ArithTerm.eval srk (function
           | `Real r -> (Linear.const_linterm r, tru, mk_real srk r)
@@ -782,6 +825,11 @@ end = struct
           | `Select _ -> raise Linear.Nonlinear
         ) term
     in
+    logf ~level:`trace "term_of_dim before linearization: @[%a@]"
+      (pp_term_of_dim srk)
+      old_term_of_dim;
+    logf ~level:`trace "curr_term_of_dim: @[%a@]" (pp_term_of_dim srk)
+      !curr_term_of_dim;
     let expand_mod_floor =
       match expansion.expand_mod_floor with
       | NoExpansion -> NoExpansion
@@ -793,6 +841,36 @@ end = struct
            }
     in
     (linearized, cond, {expansion with expand_mod_floor})
+
+  (*
+  let union_expansion expansion1 expansion2 =
+    let exp1, exp2 = expansion1.expand_mod_floor, expansion2.expand_mod_floor
+    in
+    let expand_mod_floor =
+      match exp1, exp2 with
+      | Expand_mod_floor_with
+        { free_dim = free_dim1
+        ; new_dimensions = new_dims1
+        ; linearize_mod
+        ; linearize_floor
+        },
+        Expand_mod_floor_with
+          { free_dim = free_dim2
+          ; new_dimensions = new_dims2
+          ; _
+          } ->
+         Expand_mod_floor_with
+           { free_dim = Int.max free_dim1 free_dim2
+           ; new_dimensions =
+               IntMap.union (fun _dim _t1 t2 -> Some t2)
+                 new_dims1 new_dims2
+           ; linearize_mod
+           ; linearize_floor
+           }
+      | _, _ -> failwith "Cannot combine incompatible expansions"
+    in
+    {expansion1 with expand_mod_floor}
+   *)
 
   let plt_ineq srk expansion (sign: [`Lt | `Leq | `Eq]) t1 t2 =
     let (v2, lin2, expansion2) = linearize_term srk expansion t2 in
@@ -933,6 +1011,8 @@ end = struct
              match term_of_new_dims_to_set with
              | None -> ()
              | Some term_of_dim ->
+                logf ~level:`debug "Adding dimensions @[%a@]"
+                  (pp_term_of_dim srk) new_dimensions;
                 term_of_dim :=
                   IntMap.union
                     (fun dim _ _ ->
@@ -2234,16 +2314,19 @@ end = struct
       Plt.abstract_to_standard_plt expand_mod_floor srk terms symbols
     in
     let sc_abstraction =
-      SubspaceCone.abstract_sc ~man ~max_dim_in_projected:(num_terms - 1)
+      SubspaceCone.abstract_sc ~man
+        ~max_dim_in_projected:(num_terms - 1)
         ~diversify_in_dd
     in
     plt_abstraction |> LocalAbstraction.compose sc_abstraction
 
-  let mk_standard_acceleration standard_plt_to_term_dd window
+  let mk_standard_acceleration term_of_new_dims_to_set
+        standard_plt_to_term_dd window
         expand_mod_floor srk terms symbols =
     let models = ref [] in
     let plt_abstraction =
-      Plt.abstract_to_standard_plt expand_mod_floor srk terms symbols
+      Plt.abstract_to_standard_plt ~term_of_new_dims_to_set
+        expand_mod_floor srk terms symbols
     in
     let abstract interp phi =
       models := interp :: !models;
@@ -2270,10 +2353,24 @@ end = struct
       | `DiversifyInBoth window -> window
     in
     let sc_abstraction =
-      (SubspaceCone.abstract_sc ~man ~max_dim_in_projected:(Array.length terms - 1))
+      SubspaceCone.abstract_sc ~man ~max_dim_in_projected:(Array.length terms - 1)
         ~diversify_in_dd
     in
-    mk_standard_acceleration
+
+    let term_of_dim = ref IntMap.empty in
+    let () =
+      let num_terms = Array.length terms in
+      Array.iteri (fun dim term -> term_of_dim := IntMap.add dim term !term_of_dim)
+        terms;
+      Syntax.Symbol.Set.iter
+        (fun sym ->
+          term_of_dim := IntMap.add (Syntax.int_of_symbol sym + num_terms)
+                           (Syntax.mk_const srk sym)
+                           !term_of_dim)
+        symbols
+    in
+
+    mk_standard_acceleration (Some term_of_dim)
       sc_abstraction
       window
       expand_mod_floor srk terms symbols
@@ -2439,7 +2536,9 @@ end = struct
     let abstract_to_dd =
       IntFracProjection.abstract_intfrac_plt
         ~elim:(fun dim -> dim > max_dim_in_projected)
-      |> compose (SubspaceCone.abstract_sc ~man ~max_dim_in_projected ~diversify_in_dd:false)
+      |> compose
+           (SubspaceCone.abstract_sc ~man ~max_dim_in_projected
+              ~diversify_in_dd:false)
       |> compose (inject map_intfrac)
     in
     let models = ref [] in
@@ -2571,7 +2670,9 @@ let convex_hull_of_lira_model how solver man terms model =
     | `LIRA m -> m
     | `LIRR _ -> invalid_arg "Unsupported"
   in
-  LocalAbstraction.apply local_abs m phi
+  let result = LocalAbstraction.apply local_abs m phi in
+  test_hull solver terms result;
+  result
 
 let abstract how solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None)
       terms =
@@ -2599,7 +2700,9 @@ let abstract how solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None)
       ~term_of_dim:(mk_term_of_dim terms)
       local_abs
   in
-  Abstraction.apply abstract phi
+  let result = Abstraction.apply abstract phi in
+  test_hull solver terms result;
+  result
 
 let convex_hull how ?(man=(Polka.manager_alloc_loose ())) srk phi terms =
   let solver = Abstract.Solver.make srk phi in

@@ -733,6 +733,17 @@ let spec_list = [
      that occur in integrality constraints, and taking the mixed hull at the end."
   );
 
+  ("-compare-convex-hull-sc-accelerated-vs-diversify-in-dd"
+  , Arg.String (fun file ->
+        ConvHull.compare srk
+          DD.equal
+          (`SubspaceConeAccelerated `DiversifyInOriginal)
+          (`SubspaceConeAccelerated `DiversifyInDD)
+          (load_formula file))
+  , "Test subspace-cone convex hull of an existential formula in LIRA against
+     the convex hull computed by subspace-cone with hints in DD."
+  );
+
   ("-compare-convex-hull-sc-vs-lw"
   , Arg.String (fun file ->
         ConvHull.compare srk
