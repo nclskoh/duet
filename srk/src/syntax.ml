@@ -1896,6 +1896,59 @@ let eliminate_floor_mod_div_int srk phi =
   |> eliminate_is_int srk
   |> eliminate_floor_mod_div srk
 
+let explicit_ints srk phi =
+  let is_int sym =
+    match typ_symbol srk sym with
+    | `TyInt -> true
+    | _ -> false
+  in
+  let int_symbols = Symbol.Set.filter is_int (symbols phi) in
+  let is_ints =
+    Symbol.Set.fold
+      (fun sym l -> mk_is_int srk (mk_const srk sym) :: l
+      )
+      int_symbols
+      []
+  in
+  is_ints
+
+let retype srk (fromto: [`IntToReal | `RealToInt]) phi =
+  let retyped_symbol sym =
+    match fromto with
+    | `IntToReal ->
+       mk_symbol srk ~name:(Format.asprintf "%s_realified"
+                              (show_symbol srk sym))
+         `TyReal
+    | `RealToInt ->
+       mk_symbol srk ~name:(Format.asprintf "%s_integralized"
+                              (show_symbol srk sym))
+         `TyInt
+  in
+  let map =
+    Symbol.Set.fold
+      (fun sym map ->
+        match typ_symbol srk sym with
+        | `TyInt ->
+           begin match fromto with
+           | `IntToReal -> Symbol.Map.add sym (retyped_symbol sym) map
+           | `RealToInt -> map
+           end
+        | `TyReal ->
+           begin match fromto with
+           | `RealToInt -> Symbol.Map.add sym (retyped_symbol sym) map
+           | `IntToReal -> map
+           end
+        | _ -> map
+      )
+      (symbols phi)
+      Symbol.Map.empty
+  in
+  let lookup s = try Symbol.Map.find s map with | Not_found -> s in
+  ( substitute_const srk
+      (fun s -> mk_const srk (lookup s)) phi
+  , map
+  )
+
 let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
       srk formatter assertions =
   let open Format in

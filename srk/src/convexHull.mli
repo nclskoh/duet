@@ -2,6 +2,12 @@ open Syntax
 
 type t = DD.closed DD.t
 
+(** If [enable_lira] is true (default), integrality constraints in the formula
+    are respected.
+    Otherwise, the convex hull is that of the (models of the) real relaxation of
+    the formula; integrality constraints, including implicit ones corresponding to
+    integer-typed symbols, are dropped.
+ *)
 val enable_lira: bool ref
 
 val dump_hull: bool ref

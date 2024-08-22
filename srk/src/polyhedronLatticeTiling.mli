@@ -3,46 +3,6 @@
 module P = Polyhedron
 module V = Linear.QQVector
 
-module LocalAbstraction: sig
-
-  type ('concept1, 'point1, 'concept2, 'point2) t
-
-  val apply: ('concept1, 'point1, 'concept2, 'point2) t ->
-             'point1 -> 'concept1 -> 'concept2
-
-  val compose:
-    ('concept2, 'point2, 'concept3, 'point3) t ->
-    ('concept1, 'point1, 'concept2, 'point2) t ->
-    ('concept1, 'point1, 'concept3, 'point3) t
-
-end
-
-module Abstraction: sig
-
-  type ('concept1, 'point1, 'concept2, 'point2) t
-
-  val apply: ('concept1, 'point1, 'concept2, 'point2) t -> 'concept1 -> 'concept2
-
-end
-
-module LocalGlobal: sig
-
-  val localize:
-    ('concept1, 'point1, 'concept2, 'point2) Abstraction.t ->
-    ('concept1, 'point1, 'concept2, 'point2) LocalAbstraction.t
-
-  val lift_dd_abstraction:
-    ?solver: 'a Abstract.Solver.t option ->
-    ?bottom: DD.closed DD.t option ->
-    man:(DD.closed Apron.Manager.t) ->
-    'a Syntax.context -> max_dim:int -> term_of_dim:(int -> 'a Syntax.arith_term) ->
-    ('a Syntax.formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> QQ.t)
-      LocalAbstraction.t ->
-    ('a Syntax.formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> QQ.t)
-      Abstraction.t
-
-end
-
 type standard
 type intfrac
 type 'layout plt
@@ -55,134 +15,103 @@ val formula_of_plt:
   'a Syntax.context -> (int -> 'a Syntax.arith_term) -> 'layout plt ->
   'a Syntax.formula
 
+(*
 val cooper_project: 'a Syntax.context -> 'a Syntax.formula ->
                     ('a Syntax.arith_term ) Array.t -> standard plt list
 
 val disjunctive_normal_form:
   'a Syntax.context -> base_dim:int -> 'a Syntax.formula ->
   (standard plt list * 'a Syntax.arith_term SrkUtil.Int.Map.t)
+ *)
 
-val convex_hull_of_lira_model:
-  [ `SubspaceCone
-  | `SubspaceConeAccelerated of
-      [ `DiversifyInOriginal of int
-      | `DiversifyInDD
-      | `DiversifyInBoth of int]
-  | `IntFrac
-  | `IntFracAccelerated of int
-  | `LwCooper of
-      [ `IntRealHullAfterProjection
-      | `IntHullAfterProjection
-      | `NoIntHullAfterProjection
+type abstraction_algorithm =
+  | SubspaceCone of [`Standard | `WithHKMMZCone]
+  | IntFrac of [`Standard]
+  (** IntFrac: Each implicant is first transformed into a formula over a vocabulary of
+      fresh variables {x_int, x_frac: x is a variable}, where each [x_int] is
+      integer-valued and 0 <= [x_frac] < 1 for each fractional variable.
+      This formula is equivalent to the implicant under a standard interpretation
+      [x = x_int + x_frac].
+      Formulas in this fragment admit quantifier elimination, so this formula
+      is locally projected onto variables (corresponding to the terms) to keep.
+      Then the mixed integer-hull (with respect to the integer-valued variables)
+      is locally computed, i.e., we get a subpolyhedron of the hull,
+      and this is mapped to the original space via the linear map defined by
+      [x = x_int + x_frac].
+   *)
+  | LwCooperHKMMZCone
+  | ProjectImplicant of
+      [ `AssumeReal of [`FullProject | `Lw]
+      (** Sound when the formula [F] has no [Int] literals AND all variables
+          are of real type.
+          [`FullProject] corresponds to the convex hull algorithm in FMCAD'15;
+          [`Lw] takes the convex hull of disjuncts computed by
+          model-based projection for LRA.
+       *)
+      | `AssumeInt of
+          [ `HullThenProject of [`GomoryChvatal | `Normaliz]
+          | `ProjectThenHull of [`GomoryChvatal | `Normaliz]
+          ]
+        (** Sound when the formula [F] is equivalent modulo the theory of RR,
+            ignoring type constraints of symbols, to
+            [F' /\ /\_{x in variables(F)} Int(x)], where [F'] is the formula
+            obtained from [F] by deleting all [Int] literals.
+            All variables [v] in [F] that are of integer type should be
+            explicitly constrained as integer-valued via [Int(v)].
+
+            [`GomoryChvatal] and [`Normaliz] compute the integer hull using
+            respective algorithms.
+
+            [`HullThenProject] takes the integer hull followed by full projection.
+            [`ProjectThenHull] does model-based projection using Cooper's algorithm
+            and then takes the integer hull.
+         *)
       ]
-  | `Lw ] ->
+
+(** [convex_hull_of_lira_model how ~man solver terms model] is a subpolyhedron
+    of conv.hull({(terms[0](m), ..., terms[len(terms)](m): m |= F)}) that
+    contains [model], where [F] is the formula in [solver].
+    This polyhedron is computed using [how].
+    All variables [v] in [F] that are of integer type must be explicitly
+    constrained in [F] to take on integer values only via [Int(v)].
+ *)
+val convex_hull_of_lira_model:
+  abstraction_algorithm ->
+  ?man:(DD.closed Apron.Manager.t) ->
   'a Abstract.Solver.t ->
-  DD.closed Apron.Manager.t ->
   ('a Syntax.arith_term) array -> 'a Abstract.smt_model ->
   DD.closed DD.t
 
-val abstract: [ `SubspaceCone
-              | `SubspaceConeAccelerated of
-                  [ `DiversifyInOriginal of int
-                  | `DiversifyInDD
-                  | `DiversifyInBoth of int
-                  ]
-              | `SubspaceConePrecondAccelerate of int
-              | `IntFrac
-              | `IntFracAccelerated of int
-              | `LwCooper of
-                  [ `IntRealHullAfterProjection
-                  | `IntHullAfterProjection
-                  | `NoIntHullAfterProjection]
-              | `Lw
-              ] ->
-              'a Abstract.Solver.t ->
+(** [abstract how ~man ~bottom solver terms]
+    = conv.hull({(terms[0](m), ..., terms[len(terms)](m): m |= F)}),
+    where [F] is the formula in [solver].
+    This is computed using [how].
+    All variables [v] in [F] that are of integer type must be explicitly
+    constrained in [F] to take on integer values only via [Int(v)].
+    [bottom] has to define a subset of the convex hull.
+ *)
+val abstract: abstraction_algorithm ->
               ?man:(DD.closed Apron.Manager.t) ->
               ?bottom:(DD.closed DD.t option) ->
+              'a Abstract.Solver.t ->
               'a Syntax.arith_term array ->
               DD.closed DD.t
 
-val convex_hull:
-  [ `SubspaceCone
-  | `SubspaceConeAccelerated of
-      [ `DiversifyInOriginal of int
-      | `DiversifyInDD
-      | `DiversifyInBoth of int
-      ]
-  | `SubspaceConePrecondAccelerate of int
-  | `IntFrac
-  | `IntFracAccelerated of int
-  | `LwCooper of
-      [ `IntRealHullAfterProjection
-      | `IntHullAfterProjection
-      | `NoIntHullAfterProjection]
-  | `Lw
-  ] ->
-  ?man:(DD.closed Apron.Manager.t) ->
-  'a Syntax.context -> 'a Syntax.formula ->
-  ('a Syntax.arith_term) Array.t -> DD.closed DD.t
-
-(** Sound only when all variables in the formula are of integer type,
-    and there are no integrality constraints.
-    Integrality constraints apart from integrality of variables are
-    completely ignored.
-    The correspondence between symbols and dimensions are
-    via [Syntax.symbol_of_int] and [Syntax.int_of_symbol].
-*)
-val full_integer_hull_then_project:
-  ?man:(DD.closed Apron.Manager.t) ->
-  [`GomoryChvatal | `Normaliz] ->
-  to_keep:Syntax.Symbol.Set.t ->
-  'a Syntax.context -> 'a Syntax.formula ->
-  DD.closed DD.t
-
-(** Computes convex hull of a LIA formula that has all its symbols
-    of integer type. Integrality constraints apart from integrality
-    of variables MUST be absent for this convex hull to be exact,
-    so an LIA formula should be transformed into an equivalent one
-    with more variables via [PolyhedralFormula] first.
-*)
-val hull_by_integer_hull_of_implicant_then_project:
-  ?man:(DD.closed Apron.Manager.t) ->
-  [`GomoryChvatal | `Normaliz] ->
-  'a Syntax.context -> 'a Syntax.formula ->
-  ('a Syntax.arith_term) Array.t -> DD.closed DD.t
-
-(** This computes the convex hull of an LRA formula by projecting
-    each implicant and taking the convex hull.
-    This convex hull is exact when all variables are real and no
-    integrality constraints are present.
+(** [convex_hull how ~man srk F terms]
+    = conv.hull({(terms[0](m), ..., terms[len(terms)](m): m |= F)}).
+    This is computed using [how].
+    Integrality of integer-typed variables in [F] may be left implicit, i.e.,
+    they do not have to be asserted via [Int(v)] in [F].
  *)
-val hull_by_projecting_implicant:
+val convex_hull: abstraction_algorithm ->
+                 ?man:(DD.closed Apron.Manager.t) ->
+                 'a Syntax.context -> 'a Syntax.formula ->
+                 ('a Syntax.arith_term) Array.t -> DD.closed DD.t
+
+(** Relaxes the formula into one with no integrality constraints and where all
+    variables are of type real, before taking the convex hull. *)
+val convex_hull_of_real_relaxation:
+  [`FullProject | `Lw] ->
   ?man:(DD.closed Apron.Manager.t) ->
   'a Syntax.context -> 'a Syntax.formula ->
   ('a Syntax.arith_term) Array.t -> DD.closed DD.t
-
-val convex_hull_lia:
-  'a Syntax.context -> 'a Syntax.formula ->
-  ('a Syntax.arith_term) Array.t -> DD.closed DD.t
-
-val convex_hull_lra:
-  'a Syntax.context -> 'a Syntax.formula ->
-  ('a Syntax.arith_term) Array.t -> DD.closed DD.t
-
-module PolyhedralFormula: sig
-  (** Let Sigma = (=, <, <=, Int, +, -, *, /, floor, mod, QQ). *)
-
-  (** For [phi] a quantifier-free formula in [Sigma],
-      [retype_as srk forced_typ phi = (psi, remap)] is such that
-      [psi] is a polyhedral formula,
-      all symbols in [psi] are of type [forced_typ], and [remap] maps
-      symbols in [phi] that have a different type from [forced_typ] to
-      new symbols of type [forced_typ] that replace them to get [psi].
-
-      If [remap] is empty, projecting [psi] onto the symbols of [phi]
-      is equivalent to [phi].
-      Otherwise, [remap phi |= psi], where [remap phi] is obtained by
-      substituting [remap s] for symbols [s] in the domain of [remap].
-   *)
-  val retype_as:
-    'a Syntax.context -> [`TyInt | `TyReal] -> 'a Syntax.Formula.t ->
-    'a Syntax.Formula.t * (Syntax.symbol Syntax.Symbol.Map.t)
-
-end

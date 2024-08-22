@@ -18,13 +18,20 @@ let nb_hulls = ref 0
 let dump_hull = ref false
 let dump_hull_prefix = ref ""
 
-let of_model_lira solver man terms =
+(** Low-level interface that assumes formula is in the right form for Plt.convex_hull:
+    for LIRA, this means integrality constraints for the integer-typed variables in the
+    formula are explicitly present in the formula,
+    and for LRA relaxation, this means the formula is in LRA with no LIA terms like
+    [mod], no [Int] literals, and all variables are of type [`TyReal].
+ *)
+let of_model_lira solver man terms model =
   match !enable_lira with
   | true ->
-     Plt.convex_hull_of_lira_model `SubspaceCone
-       solver man terms
+     Plt.convex_hull_of_lira_model (SubspaceCone `Standard) ~man
+       solver terms model
   | false ->
-     Plt.convex_hull_of_lira_model `Lw solver man terms
+     Plt.convex_hull_of_lira_model (ProjectImplicant (`AssumeReal `Lw)) ~man
+       solver terms model
      (*
      let srk = Solver.get_context solver in
      let phi = Solver.get_formula solver in
@@ -94,6 +101,7 @@ let of_model_lira solver man terms =
         in
         Polyhedron.local_project valuation elim_dims cube
         |> Polyhedron.meet dim_constraint_polyhedron
+        (* NK: Shouldn't the meet be before projection? *)
         |> Polyhedron.dd_of ~man dim
       *)
 
@@ -151,11 +159,8 @@ let abstract solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None) terms =
       incr nb_hulls
     end;
 
-  match !enable_lira with
-  | true -> Plt.abstract
-              (`SubspaceConeAccelerated (`DiversifyInOriginal 1)) solver
-              ~man ~bottom terms
-  | false ->
+  match Solver.get_theory solver with
+  | `LIRR ->
      let join = DD.join in
      let dim = Array.length terms in
      let srk = Solver.get_context solver in
@@ -181,28 +186,30 @@ let abstract solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None) terms =
        |> BatList.of_enum
        |> mk_and srk
      in
-     let of_model = match Solver.get_theory solver with
-       | `LIRA -> of_model_lira solver man terms
-       | `LIRR -> of_model_lirr solver man terms
-     in
+     let of_model = of_model_lirr solver man terms in
      let domain =
        Abstract.{ join; top; of_model; bottom; formula_of }
      in
      Solver.abstract solver domain
+  | `LIRA ->
+     match !enable_lira with
+     | true ->
+        let srk = Solver.get_context solver in
+        let phi = Solver.get_formula solver in
+        Solver.add solver [Syntax.mk_and srk (Syntax.explicit_ints srk phi)];
+        Plt.abstract (SubspaceCone `Standard) ~man ~bottom solver terms
+     | false ->
+        (* The caller should probably be responsible for relaxing the formula
+           in the solver.
+         *)
+        let srk = Solver.get_context solver in
+        let phi = Solver.get_formula solver in
+        Plt.convex_hull_of_real_relaxation `Lw ~man srk phi terms
 
 let conv_hull ?(man=Polka.manager_alloc_loose ()) srk phi terms =
-  let (phi, to_casted_symbols) =
-    match !enable_lira with
-    | true -> (phi, Symbol.Map.empty)
-    | false -> Plt.PolyhedralFormula.retype_as srk `TyReal phi
-  in
-  let subst s =
-    match Symbol.Map.find_opt s to_casted_symbols with
-    | Some s' -> Syntax.mk_const srk s'
-    | None -> Syntax.mk_const srk s
-  in
-  let solver = Solver.make srk phi in
-  let retyped_terms =
-    Array.map (fun term -> Syntax.substitute_const srk subst term) terms
-  in
-  abstract solver ~man retyped_terms
+  match !enable_lira with
+  | true ->
+     let phi_with_ints = Syntax.mk_and srk (Syntax.explicit_ints srk phi) in
+     Plt.convex_hull (SubspaceCone `Standard) ~man srk phi_with_ints terms
+  | false ->
+     Plt.convex_hull_of_real_relaxation `Lw ~man srk phi terms

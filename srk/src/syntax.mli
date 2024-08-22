@@ -538,6 +538,13 @@ val eliminate_floor_mod_div : 'a context -> 'a formula -> 'a formula
  *)
 val eliminate_floor_mod_div_int : 'a context -> 'a formula -> 'a formula
 
+(** [explicit_ints srk phi = [Int(v): v in symbols(phi) that is of type `TyInt].
+ *)
+val explicit_ints: 'a context -> 'a formula -> 'a formula list
+
+val retype: 'a context -> [`IntToReal | `RealToInt] -> 'a formula ->
+            'a formula * symbol Symbol.Map.t
+
 (** Print a formula as a satisfiability query in SMTLIB2 format.
     The query includes function declarations and (check-sat).
 
