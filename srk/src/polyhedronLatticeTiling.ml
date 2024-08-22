@@ -29,7 +29,7 @@ module V = Linear.QQVector
 
 include Log.Make (struct let name = "polyhedronLatticeTiling" end)
 
-let () = my_verbosity_level := `debug
+let () = my_verbosity_level := `info
 let test_convex_hull = ref false
 let test_level = ref `debug
 
@@ -1691,9 +1691,7 @@ module MixedCooper: sig
      local abstraction that has finite image.
    *)
 
-  (* Dimensions to be eliminated must take on only integer values in the
-     universe.
-   *)
+  (* Dimensions to be eliminated must appear in an Int literal. *)
   val abstract_cooper:
     elim: (int -> bool) ->
     round_up: ((int -> QQ.t) -> V.t -> V.t) ->
@@ -1955,8 +1953,11 @@ end = struct
     log_plt_constraints ~level:`debug "abstract_lw_cooper: abstracting" (p, l, t);
     let elim_dimensions =
       Plt.constrained_dimensions plt |> IntSet.filter elim in
-    (* TODO: What about t? *)
-    let integer_dimensions = collect_dimensions (fun v -> v) (fun _ -> true) l in
+    let integer_dimensions =
+      IntSet.union
+        (collect_dimensions (fun v -> v) (fun _ -> true) l)
+        (collect_dimensions (fun v -> v) (fun _ -> true) t)
+    in
     let (int_dims_to_elim, real_dims_to_elim) =
       IntSet.partition (fun dim -> IntSet.mem dim integer_dimensions)
         elim_dimensions
@@ -2537,12 +2538,19 @@ let integer_hull_plt_assuming_integrality ~man hull_alg plt =
       w
       V.zero
   in
-  BatEnum.map
-    (fun (kind, w) ->
-      (kind, substitute substitutions w)
-    )
-    (P.enum_constraints hull)
-  |> DD.of_constraints_closed ~man max_dim
+  let hull =
+    BatEnum.map
+      (fun (kind, w) ->
+        (kind, substitute substitutions w)
+      )
+      (P.enum_constraints hull)
+    |> P.of_constraints
+  in
+  logf ~level:`debug
+    "integer_hull_plt_assuming_integrality: max_dim: %d@;" max_dim;
+  logf ~level:`debug
+    "integer_hull_plt_assuming_integrality: hull: @[%a@]" (P.pp pp_dim) hull;
+  P.dd_of ~man (max_dim + 1) hull
 
 let local_abstraction_of_lira_model how ~man srk terms symbols =
   let local_abs =
@@ -2599,20 +2607,29 @@ let local_abstraction_of_lira_model how ~man srk terms symbols =
                begin match hull_alg with
                | `GomoryChvatal ->
                   P.of_constraints cnstrnts
-                  |> P.dd_of ~man max_dim_in_p
+                  |> P.dd_of ~man (max_dim_in_p + 1)
                   |> DD.integer_hull
                   |> DD.project dimensions_to_eliminate
+                  |> DD.enum_constraints
+                  |> DD.of_constraints_closed ~man (Array.length terms)
                | `Normaliz ->
                   P.integer_hull `Normaliz p
-                  |> P.dd_of ~man max_dim_in_p
+                  |> P.dd_of ~man (max_dim_in_p + 1)
                   |> DD.project dimensions_to_eliminate
+                  |> DD.enum_constraints
+                  |> DD.of_constraints_closed ~man (Array.length terms)
                end
             | `ProjectThenHull hull_alg ->
-               let elim dim = dim > Array.length terms in
+               let elim dim = dim >= Array.length terms in
                let round_up _m v = v in
                let local_projection =
                  LocalAbstraction.apply
                    (MixedCooper.abstract_cooper ~elim ~round_up) m plt in
+               let p = P.enum_constraints (Plt.poly_part local_projection) |> BatList.of_enum in
+               let l = L.basis (Plt.lattice_part local_projection) in
+               let t = L.basis (Plt.tiling_part local_projection) in
+               log_plt_constraints ~level:`debug "project_then_hull, projected"
+                 (p, l, t);
                integer_hull_plt_assuming_integrality ~man hull_alg local_projection
             end
          end
