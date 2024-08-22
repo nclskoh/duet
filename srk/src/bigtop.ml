@@ -460,7 +460,7 @@ let spec_list = [
   , "Test convex hulls for correctness"
   );
 
-  ("-compare-convex-hull-sc-hkmmzcone-vs-lwcooper-hkmmz"
+  ("-compare-convex-hull-sc-hkmmzcone-vs-lwcooper-hkmmzcone"
   , Arg.String (fun file ->
         ConvHull.compare srk
           DD.equal (`Precise (SubspaceCone `WithHKMMZCone)) (`Precise LwCooperHKMMZCone)
