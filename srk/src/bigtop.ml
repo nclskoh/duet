@@ -298,13 +298,13 @@ end = struct
       Format.printf "Result: success"
     else
       if dd_subset hull1 hull2 then
-        Format.printf "Result: failure (%a hull is more precise)"
+        Format.printf "Result: failure (%a is more precise)"
           pp_alg alg1
       else if dd_subset hull2 hull1 then
-        Format.printf "Result: failure (%a hull is more precise)"
+        Format.printf "Result: failure (%a is more precise)"
           pp_alg alg2
       else
-        Format.printf "Result: failure (%a and %a hull incomparable)"
+        Format.printf "Result: failure (%a and %a incomparable)"
           pp_alg alg1 pp_alg alg2
 
 end
