@@ -29,7 +29,7 @@ module V = Linear.QQVector
 
 include Log.Make (struct let name = "polyhedronLatticeTiling" end)
 
-let () = my_verbosity_level := `info
+let () = my_verbosity_level := `debug
 let test_convex_hull = ref false
 let test_level = ref `debug
 
@@ -1668,7 +1668,10 @@ end = struct
       test_point_in_polyhedron "abstract_lw" m
         (BatList.of_enum (P.enum_constraints abstracted));
       let restricted m dim =
-        if elim dim then failwith "abstract_lw: Dimension has been eliminated"
+        if elim dim then
+          failwith
+            (Format.asprintf
+               "abstract_lw: Dimension %d has been eliminated" dim)
         else m dim
       in
       (abstracted, restricted)
@@ -1920,7 +1923,10 @@ end = struct
 
   let abstract_cooper ~elim ~round_up =
     let restricted m dim =
-      if elim dim then failwith "abstract_cooper: Dimension has been eliminated"
+      if elim dim then
+        failwith
+          (Format.asprintf
+             "abstract_lw: Dimension %d has been eliminated" dim)
       else m dim
     in
     LocalAbstraction.
@@ -2380,7 +2386,10 @@ end = struct
       ( mapped_dd
       , fun m dim ->
         if dim >= 0 && dim < num_terms then m dim
-        else failwith "convex_hull_intfrac: dimension has been eliminated"
+        else
+          failwith
+            (Format.asprintf
+               "convex_hull_intfrac: dimension %d has been eliminated" dim)
       )
     in
     map_intfrac
@@ -2552,7 +2561,7 @@ let local_abstraction_of_lira_model how ~man srk terms symbols =
                    srk terms symbols in
        let expand m plt =
          ( Plt.polyhedron_of_far_lattice_points
-             ~man ~max_dim:(Array.length terms) m plt
+             ~man ~max_dim:(Array.length terms - 1) m plt
          , fun m -> m )
        in
        abs
