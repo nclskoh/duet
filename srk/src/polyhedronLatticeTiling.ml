@@ -2598,7 +2598,6 @@ let local_abstraction_of_lira_model how ~man srk terms symbols =
               m p
             |> P.dd_of ~man (Array.length terms)
          | `AssumeInt how ->
-            let cnstrnts = sharpen_strict_inequalities_assuming_integrality p in
             let dimensions_to_eliminate =
               BatEnum.(Array.length terms -- max_dim_in_p) |> BatList.of_enum
             in
@@ -2606,6 +2605,8 @@ let local_abstraction_of_lira_model how ~man srk terms symbols =
             | `HullThenProject hull_alg ->
                begin match hull_alg with
                | `GomoryChvatal ->
+                  let cnstrnts =
+                    sharpen_strict_inequalities_assuming_integrality p in
                   P.of_constraints cnstrnts
                   |> P.dd_of ~man (max_dim_in_p + 1)
                   |> DD.integer_hull
@@ -2622,9 +2623,19 @@ let local_abstraction_of_lira_model how ~man srk terms symbols =
             | `ProjectThenHull hull_alg ->
                let elim dim = dim >= Array.length terms in
                let round_up _m v = v in
+               let sharpened_plt =
+                 Plt.abstract_poly_part
+                   {abstract =
+                      (fun _m p ->
+                        ( sharpen_strict_inequalities_assuming_integrality p
+                          |> P.of_constraints
+                        , fun m -> m))
+                   }
+                 |> (fun abs -> LocalAbstraction.apply abs m plt)
+               in
                let local_projection =
                  LocalAbstraction.apply
-                   (MixedCooper.abstract_cooper ~elim ~round_up) m plt in
+                   (MixedCooper.abstract_cooper ~elim ~round_up) m sharpened_plt in
                let p = P.enum_constraints (Plt.poly_part local_projection) |> BatList.of_enum in
                let l = L.basis (Plt.lattice_part local_projection) in
                let t = L.basis (Plt.tiling_part local_projection) in
