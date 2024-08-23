@@ -228,11 +228,11 @@ end = struct
        end
     | `RealRelaxation `FullProject ->
        Format.fprintf fmt
-         "Desugar LIA terms and Ints into LRA, drop integrality constraints, 
+         "Desugar LIA terms and Ints into LRA, drop integrality constraints,
           and compute the convex hull by doing a full projection on each implicant (FMCAD'15)"
     | `RealRelaxation `Lw ->
        Format.fprintf fmt
-         "Desugar LIA terms and Ints into LRA, drop integrality constraints, 
+         "Desugar LIA terms and Ints into LRA, drop integrality constraints,
           and compute the convex hull by doing Loos-Weispfenning model-based projection on each implicant and convexifying"
 
   let convex_hull srk how phi =
@@ -355,7 +355,7 @@ let spec_list = [
      using the subspace-and-cone abstraction"
   );
 
-  (*  
+  (*
   ("-lira-acceleration-window"
   , Arg.Int (fun n -> Format.printf "Setting window size to %d" n;
                       ConvHull.acceleration_window := n)
@@ -432,11 +432,11 @@ let spec_list = [
         Format.printf "Result: success"
       )
   , "Compute the convex hull of an existential formula in linear integer-real
-     arithmetic by model-based projection using Loos-Weispfenning elimination 
-     for variables not occurring in integrality constraints and 
-     (sound) Cooper model-based projection for variables that occur in 
-     integrality constraints, and taking the convex hull of lattice points 
-     that are far away using the algorithm from 
+     arithmetic by model-based projection using Loos-Weispfenning elimination
+     for variables not occurring in integrality constraints and
+     (sound) Cooper model-based projection for variables that occur in
+     integrality constraints, and taking the convex hull of lattice points
+     that are far away using the algorithm from
      'An efficient quantifier elimination procedure for Presburger arithmetic' (ICALP 2024))."
   );
 
@@ -450,6 +450,18 @@ let spec_list = [
       )
   , "Compute the convex hull of an existential formula in linear integer-real arithmetic
      using -lira-convex-hull-sc and -lira-convex-hull-lwcooper-hkmmzcone"
+  );
+
+  ("-lira-convex-hull-real-relaxation-lw"
+  , Arg.String
+      (fun file ->
+        ignore (ConvHull.convex_hull srk (`RealRelaxation `Lw) (load_formula file));
+        Format.printf "Result: success"
+      )
+  , "Compute the convex hull of an existential formula in linear integer-real arithmetic
+     by desugaring LIA terms and Ints into LRA, dropping integrality constraints
+     (integer-typed variables are replaced with real-typed ones), and projecting each
+     implicant using Loos-Weispfening model-based projection"
   );
 
   ("-compare-convex-hull-sc-vs-sc-hkmmzcone"
@@ -568,7 +580,7 @@ let spec_list = [
                   (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in linear real arithmetic 
+  , "Compute the convex hull of an existential formula in linear real arithmetic
      using Loos-Weispfenning."
   );
 
@@ -579,7 +591,7 @@ let spec_list = [
                   (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in linear real arithmetic 
+  , "Compute the convex hull of an existential formula in linear real arithmetic
      using full projection (FMCAD'15)."
   );
 
@@ -624,7 +636,7 @@ let spec_list = [
         let fmt = Format.formatter_of_out_channel (open_out outfilename) in
         pp_smtlib2 srk fmt phi'
       )
-  , "Make a copy of an SMT file with the formula first de-sugared into LRA + integer-typed variables, 
+  , "Make a copy of an SMT file with the formula first de-sugared into LRA + integer-typed variables,
      and then all real variables are re-declared as integer"
   );
 
@@ -647,7 +659,7 @@ let spec_list = [
         let fmt = Format.formatter_of_out_channel (open_out outfilename) in
         pp_smtlib2 srk fmt phi'
       )
-  , "Make a copy of an SMT file with the formula first de-sugared into LRA + integer-typed variables, 
+  , "Make a copy of an SMT file with the formula first de-sugared into LRA + integer-typed variables,
      and then all integer-typed variables are re-declared as real"
   );
 
