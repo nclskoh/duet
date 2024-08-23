@@ -202,7 +202,7 @@ end = struct
           Format.fprintf fmt
             "SubspaceCone joined with the polyhedron of far lattice points"
        | Plt.IntFrac `Standard ->
-          Format.fprintf fmt "IntFrac"
+          Format.fprintf fmt "IntFrac with lattice hull underapproximated using HKMMZCone"
        | Plt.LwCooperHKMMZCone ->
           Format.fprintf fmt "%s"
             (String.concat " "
@@ -488,6 +488,14 @@ let spec_list = [
   , Arg.String (fun file ->
         ConvHull.compare srk
           DD.equal (`Precise (SubspaceCone `WithHKMMZCone)) (`Precise LwCooperHKMMZCone)
+          (load_formula file))
+  , "Test convex hulls computed by -lira-convex-hull-sc-hkmmzcone with that of -lira-convex-hull-lwcooper-hkmmzcone"
+  );
+
+  ("-compare-convex-hull-sc-hkmmzcone-vs-intfrac"
+  , Arg.String (fun file ->
+        ConvHull.compare srk
+          DD.equal (`Precise (SubspaceCone `WithHKMMZCone)) (`Precise (IntFrac `Standard))
           (load_formula file))
   , "Test convex hulls computed by -lira-convex-hull-sc-hkmmzcone with that of -lira-convex-hull-lwcooper-hkmmzcone"
   );
