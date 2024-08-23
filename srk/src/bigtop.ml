@@ -464,6 +464,18 @@ let spec_list = [
      implicant using Loos-Weispfening model-based projection"
   );
 
+  ("-lira-convex-hull-real-relaxation-fmcad15"
+  , Arg.String
+      (fun file ->
+        ignore (ConvHull.convex_hull srk (`RealRelaxation `FullProject) (load_formula file));
+        Format.printf "Result: success"
+      )
+  , "Compute the convex hull of an existential formula in linear integer-real arithmetic
+     by desugaring LIA terms and Ints into LRA, dropping integrality constraints
+     (integer-typed variables are replaced with real-typed ones), and projecting each
+     implicant using Loos-Weispfening model-based projection"
+  );
+
   ("-compare-convex-hull-sc-vs-sc-hkmmzcone"
   , Arg.String (fun file ->
         ConvHull.compare srk
