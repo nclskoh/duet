@@ -716,8 +716,22 @@ module ClosedConvexHull = struct
           fun m ->
             begin match m with
             | `LIRA m0 ->
-              let result = fst (abs (phi, m0)) in
-              result
+              begin
+                Log.logf ~level:`always
+                  "Got model: @[%a@]@\n"
+                  (Format.pp_print_list ~pp_sep:(Format.pp_print_space)
+                    (fun fmt (term, r) ->
+                      Format.fprintf fmt "(%a, %a)"
+                        (Syntax.ArithTerm.pp srk) term QQ.pp r
+                    )
+                  )
+                  (Array.to_list
+                    (Array.map (fun t -> (t, Interpretation.evaluate_term m0 t))
+                      terms)
+                  );
+                let result = fst (abs (phi, m0)) in
+                result
+              end
             | `LIRR _ -> assert false
             end
       | (`LIRR, `LIRR abs) -> abs

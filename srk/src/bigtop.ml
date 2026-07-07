@@ -317,6 +317,15 @@ let spec_list = [
   , " Compute the convex hull of an existential formula in linear integer arithmetic."
   );
 
+  ("-lia-convex-hull-gc"
+  , Arg.String
+      (fun file ->
+        ConvHull.print_convex_hull srk
+          (Plt.ConvexHull.cch_lia_hull_then_project srk) (load_formula file)
+      )
+  , " Compute the convex hull of an existential formula in linear integer arithmetic."
+  );
+
   ("-lra-convex-hull"
   , Arg.String
       (fun file ->
@@ -410,24 +419,25 @@ let spec_list = [
 
   ("-stats",
    Arg.String (fun file ->
-       let open Syntax in
-       let phi = load_formula file in
-       let phi = Formula.prenex srk phi in
-       let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
-       let rec go phi =
-         match Formula.destruct srk phi with
-         | `Quantify (`Exists, _, _, psi) -> "E" ^ (go psi)
-         | `Quantify (`Forall, _, _, psi) -> "A" ^ (go psi)
-         | _ -> ""
-       in
-       let qf_pre =
-         (String.concat ""
-            (List.map (fun _ -> "E") (Symbol.Set.elements constants)))
-         ^ (go phi)
-       in
-       Format.printf "Quantifier prefix: %s" qf_pre;
-       Format.printf "Variables: %d" (String.length qf_pre);
-       Format.printf "Matrix size: %d" (size phi)),
+      let open Syntax in
+      let phi = load_formula file in
+      let phi = Formula.prenex srk phi in
+      let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in
+      let rec go phi =
+        match Formula.destruct srk phi with
+        | `Quantify (`Exists, _, _, psi) -> "E" ^ (go psi)
+        | `Quantify (`Forall, _, _, psi) -> "A" ^ (go psi)
+        | _ -> ""
+      in
+      let qf_pre = go phi in
+      let full_qf_pre = (String.concat ""
+        (List.map (fun _ -> "E") (Symbol.Set.elements constants))) ^ qf_pre
+      in
+      Format.printf "Quantifier prefix: %s\n" qf_pre;
+      Format.printf "Quantified Variables: %d\n" (String.length qf_pre);
+      Format.printf "Free Variables: %d\n" (Symbol.Set.cardinal constants);
+      Format.printf "Variables: %d\n" (String.length full_qf_pre);
+      Format.printf "Matrix size: %d\n" (size phi)),
    " Print formula statistics");
 
   ("-random",

@@ -811,10 +811,12 @@ end = struct
         BatEnum.map (fun (k, v) ->
             match k with
             | `Vertex ->
-               let int_v =
-                 P.close_lattice_point fns p ~rational:v ~integer:m_vec ambient_dim
-               in
-               (`Vertex, int_v)
+              let int_v =
+                P.close_lattice_point fns p ~rational:v ~integer:m_vec ambient_dim
+              in
+              Log.logf ~level:`always "Pexpansion: @[Original vertex: %a; New vertex: %a@]"
+                Linear.QQVector.pp v Linear.QQVector.pp int_v;
+              (`Vertex, int_v)
             | `Ray -> (`Ray, v)
             | `Line -> (`Line, v)
           )
@@ -919,6 +921,11 @@ module ConvexHull : sig
     man:DD.closed Apron.Manager.t -> 'a context -> 'a arith_term array ->
     'a lira_to_polyhedron_abs
 
+  val cch_lia_hull_then_project: man:DD.closed Apron.Manager.t
+    -> 'a Syntax.context
+    -> 'a Syntax.arith_term array
+    -> 'a lira_to_polyhedron_abs
+
 end = struct
 
   let default_epsilon = QQ.of_frac 1 10
@@ -1020,6 +1027,9 @@ end = struct
       cubify (plt, m)
       |> CloseStrictIneq.round_assuming_all_ints
       |> project
+
+  let cch_lia_hull_then_project ~man srk terms =
+    _cch_lia_hull_then_project `GomoryChvatal ~man srk terms
 end
 
 let _formula_of_plt = Plt.formula_of_plt

@@ -76,6 +76,11 @@ module ConvexHull : sig
     -> 'a Syntax.arith_term array
     -> 'a lira_to_polyhedron_abs
 
+  val cch_lia_hull_then_project: man:DD.closed Apron.Manager.t
+    -> 'a Syntax.context
+    -> 'a Syntax.arith_term array
+    -> 'a lira_to_polyhedron_abs
+
 end
 
 type plt_constraints
